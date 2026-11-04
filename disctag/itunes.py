@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 import requests
 from PIL import Image, ImageOps
 
+from .apple_music_web import AppleMusicWebClient
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -28,6 +29,7 @@ class ITunesError(RuntimeError):
 class ITunesClient:
     def __init__(self, timeout: float = 20):
         self.timeout = timeout
+        self.china_client = AppleMusicWebClient(timeout)
         self.last_warnings: list[str] = []
 
     def search_albums(self, album: str, artist: str = "", country: str = "US") -> list[AlbumSummary]:
@@ -38,6 +40,8 @@ class ITunesClient:
         return self._search_region(album, artist, country)
 
     def _search_region(self, album: str, artist: str, country: str) -> list[AlbumSummary]:
+        if country == "CN":
+            return self.china_client.search_albums(album, artist)
         term = " ".join(part.strip() for part in (artist, album) if part.strip())
         if not term:
             raise ITunesError("请输入专辑名称。")
@@ -90,6 +94,8 @@ class ITunesClient:
         )[:75]
 
     def get_album(self, collection_id: int, country: str = "US") -> AlbumMetadata:
+        if country.upper() == "CN":
+            return self.china_client.get_album(collection_id)
         data = self._get(
             "https://itunes.apple.com/lookup",
             {

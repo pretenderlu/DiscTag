@@ -448,7 +448,12 @@ class DiscTagApp:
         album = self.album_var.get().strip()
         artist = self.artist_var.get().strip()
         self.search_button.configure(state="disabled")
-        self.status_var.set("正在并行查询全部地区…" if region == "ALL" else f"正在查询 {ITUNES_REGIONS[region]} iTunes…")
+        if region == "ALL":
+            self.status_var.set("正在并行查询全部地区…")
+        elif region == "CN":
+            self.status_var.set("正在查询中国大陆 Apple Music 公开网页…")
+        else:
+            self.status_var.set(f"正在查询 {ITUNES_REGIONS[region]} iTunes…")
 
         def work():
             return self.client.search_albums(album, artist, region)

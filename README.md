@@ -4,12 +4,12 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v1.2.0**
+当前版本：**v1.3.0**
 
 ## 功能
 
 - WAV 保留原音频并写入 RIFF ID3 标签，或转换为 FLAC、MP3。
-- 查询 iTunes 美区、日区、中国大陆、中国香港以及中国台湾曲库，支持全部地区合并检索。
+- 查询 iTunes 美区、日区、中国香港以及中国台湾曲库，并通过 Apple Music 公开网页检索中国大陆内容，支持全部地区合并检索。
 - 自动下载专辑资料与封面，也可使用本地封面。
 - 封面可设置 600、1200、2400、3000 像素上限，自动降级下载并显示实际尺寸，不放大低清图片。
 - 本地与在线曲目数量不一致时，可按 CD 曲序手动插入缺曲。
@@ -61,6 +61,8 @@ Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中�
 
 ## 数据来源
 
-专辑检索使用公开的 iTunes Search API，不需要 Apple 账号。不同地区的数字发行曲目可能不同，最终标签请以实体 CD 曲目表为准。
+美区、日区、中国香港和中国台湾使用公开的 iTunes Search API；中国大陆使用 Apple Music 公开网页中的结构化数据，不需要 Apple 账号。网页检索不是官方免密 API，页面结构变化时可能需要更新解析逻辑。官方 Apple Music API 需要 Apple Developer Program 开发者令牌，本项目未使用该凭证。
+
+不同地区的数字发行曲目可能不同，最终标签请以实体 CD 曲目表为准。
 
 音频处理使用 FFmpeg，标签写入使用 Mutagen，图像处理使用 Pillow。
