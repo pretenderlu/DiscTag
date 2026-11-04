@@ -354,7 +354,14 @@ class DiscTagApp:
         self.results_tree.pack(side="left", fill="both", expand=True)
         result_scroll.pack(side="right", fill="y")
         self.results_tree.bind("<<TreeviewSelect>>", self._album_selected)
-        ttk.Label(left, text="全部地区会并行查询美国、日本、中国大陆、中国香港和中国台湾，\n相同专辑的不同地区版本会分别保留。", style="Muted.Card.TLabel", justify="left").pack(anchor="w", pady=(10, 0))
+        self.region_hint_label = ttk.Label(
+            left,
+            text="全部地区：美国、日本、中国大陆、中国香港、中国台湾。\n不同地区的专辑版本会分别保留。",
+            style="Muted.Card.TLabel",
+            justify="left",
+            wraplength=self._px(360),
+        )
+        self.region_hint_label.pack(anchor="w", pady=(10, 0))
 
         album_top = ttk.Frame(right, style="Card.TFrame")
         album_top.pack(fill="x", pady=(0, 12))
@@ -1223,14 +1230,14 @@ class DiscTagApp:
         if is_discogs:
             self.region_label.pack_forget()
             self.region_combo.pack_forget()
-            self.token_header.pack(fill="x")
-            self.discogs_token_entry.pack(fill="x", pady=(4, 6))
+            self.token_header.pack(fill="x", before=self.search_button.master)
+            self.discogs_token_entry.pack(fill="x", pady=(4, 6), before=self.search_button.master)
             self.search_button.configure(text="搜索 Discogs")
         else:
             self.token_header.pack_forget()
             self.discogs_token_entry.pack_forget()
-            self.region_label.pack(anchor="w")
-            self.region_combo.pack(fill="x", pady=(4, 6))
+            self.region_label.pack(anchor="w", before=self.search_button.master)
+            self.region_combo.pack(fill="x", pady=(4, 6), before=self.search_button.master)
             self.search_button.configure(text="搜索 iTunes")
         if _event is not None:
             self.search_request_id += 1
