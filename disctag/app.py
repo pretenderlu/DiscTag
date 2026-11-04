@@ -309,7 +309,7 @@ class DiscTagApp:
         self.results_tree.pack(side="left", fill="both", expand=True)
         result_scroll.pack(side="right", fill="y")
         self.results_tree.bind("<<TreeviewSelect>>", self._album_selected)
-        ttk.Label(left, text="全部地区会并行查询美、日、中、港、台，\n相同专辑的不同地区版本会分别保留。", style="Muted.Card.TLabel", justify="left").pack(anchor="w", pady=(10, 0))
+        ttk.Label(left, text="全部地区会并行查询美国、日本、中国大陆、中国香港和中国台湾，\n相同专辑的不同地区版本会分别保留。", style="Muted.Card.TLabel", justify="left").pack(anchor="w", pady=(10, 0))
 
         album_top = ttk.Frame(right, style="Card.TFrame")
         album_top.pack(fill="x", pady=(0, 12))
