@@ -476,7 +476,7 @@ class DiscTagApp:
         tk.Label(frame, text="水友驱动开发", bg="#1D1C31", fg="#FFFFFF", font=(self.ui_semibold, 20)).pack()
         tk.Label(
             frame,
-            text="为了满足某某群水友的需求，\n让 AI 迅速搓了这么一个软件。",
+            text="为了满足 EvoAria（埃沃）Evo Era专属吹水\n群水友的需求，让 AI 迅速搓了这么一个软件。",
             bg="#1D1C31",
             fg="#D8D4F0",
             font=(self.cjk_font, 12),

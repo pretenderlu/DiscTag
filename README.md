@@ -4,7 +4,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v1.4.1**
+当前版本：**v1.4.2**
 
 ## 功能
 
