@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="140" y1="90" x2="890" y2="950" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8274FA"/>
+      <stop offset="0.52" stop-color="#6251DD"/>
+      <stop offset="1" stop-color="#392876"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="285" y1="220" x2="735" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.38" stop-color="#E8EBFF"/>
+      <stop offset="0.72" stop-color="#C4C9EA"/>
+      <stop offset="1" stop-color="#F4F5FF"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="250" y1="220" x2="710" y2="740" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9B8CFF" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="570" y1="500" x2="870" y2="820" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42E8D5"/>
+      <stop offset="1" stop-color="#08A9B5"/>
+    </linearGradient>
+    <radialGradient id="label" cx="0" cy="0" r="1" gradientTransform="translate(445 400) rotate(52) scale(225)">
+      <stop stop-color="#A99CFF"/>
+      <stop offset="1" stop-color="#6C56D9"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#171038" flood-opacity="0.35"/>
+    </filter>
+    <filter id="badgeShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#143D62" flood-opacity="0.34"/>
+    </filter>
+    <clipPath id="discClip">
+      <circle cx="480" cy="478" r="318"/>
+    </clipPath>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="222" fill="url(#bg)"/>
+  <path d="M92 252C130 142 224 86 356 74H688C493 159 303 304 151 501C106 428 77 339 92 252Z" fill="#FFFFFF" opacity="0.075"/>
+  <circle cx="820" cy="206" r="104" fill="#B9AEFF" opacity="0.11"/>
+  <circle cx="164" cy="790" r="145" fill="#241953" opacity="0.12"/>
+  <g filter="url(#shadow)">
+    <circle cx="480" cy="478" r="326" fill="#302466" opacity="0.3"/>
+    <circle cx="480" cy="458" r="326" fill="url(#disc)"/>
+    <g clip-path="url(#discClip)" transform="translate(0 -20)">
+      <path d="M172 292L677 157L789 332L250 494Z" fill="#FFFFFF" opacity="0.38"/>
+      <path d="M282 735L760 448L813 635L480 812Z" fill="#9B8BE8" opacity="0.16"/>
+      <circle cx="480" cy="478" r="288" fill="none" stroke="#7B80AC" stroke-opacity="0.22" stroke-width="4"/>
+      <circle cx="480" cy="478" r="270" fill="none" stroke="#FFFFFF" stroke-opacity="0.56" stroke-width="3"/>
+      <circle cx="480" cy="478" r="250" fill="none" stroke="#7B80AC" stroke-opacity="0.18" stroke-width="3"/>
+      <circle cx="480" cy="478" r="230" fill="none" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="3"/>
+      <circle cx="480" cy="478" r="318" fill="url(#sheen)"/>
+    </g>
+    <circle cx="480" cy="458" r="126" fill="url(#label)"/>
+    <circle cx="480" cy="458" r="91" fill="none" stroke="#D9D2FF" stroke-opacity="0.34" stroke-width="3"/>
+    <circle cx="480" cy="458" r="47" fill="#F8F8FF"/>
+    <circle cx="480" cy="458" r="25" fill="#4C3B9B"/>
+  </g>
+  <g transform="rotate(-8 715 662)" filter="url(#badgeShadow)">
+    <rect x="565" y="520" width="310" height="286" rx="82" fill="url(#badge)"/>
+    <path d="M598 568C598 550 612 536 630 536H788" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="634" cy="594" r="22" fill="#EFFFFC"/>
+    <path d="M699 714V603L803 578V684" fill="none" stroke="#FFFFFF" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M699 618L803 593" fill="none" stroke="#FFFFFF" stroke-width="29" stroke-linecap="round"/>
+    <ellipse cx="670" cy="718" rx="43" ry="34" fill="#FFFFFF"/>
+    <ellipse cx="774" cy="688" rx="43" ry="34" fill="#FFFFFF"/>
+  </g>
+  <path d="M241 204C300 160 376 133 447 130" fill="none" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="13" stroke-linecap="round"/>
+</svg>
