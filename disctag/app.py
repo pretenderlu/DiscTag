@@ -85,6 +85,7 @@ class DiscTagApp:
         self.cover_info_var = tk.StringVar()
         self.cover_request_id = 0
         self.album_request_id = 0
+        self.search_request_id = 0
         self.cover_is_local = False
         self.album_info_var = tk.StringVar(value="搜索并选择专辑，或进入手动模式")
         self.match_var = tk.StringVar(value="先导入 WAV 文件")
@@ -285,7 +286,8 @@ class DiscTagApp:
 
         ttk.Label(left, text="2  匹配专辑资料", style="Title.Card.TLabel").pack(anchor="w", pady=(0, 12))
         ttk.Label(left, text="专辑名称", style="Card.TLabel").pack(anchor="w")
-        ttk.Entry(left, textvariable=self.album_var).pack(fill="x", pady=(4, 9))
+        self.album_entry = ttk.Entry(left, textvariable=self.album_var)
+        self.album_entry.pack(fill="x", pady=(4, 9))
         ttk.Label(left, text="歌手名称", style="Card.TLabel").pack(anchor="w")
         ttk.Entry(left, textvariable=self.artist_var).pack(fill="x", pady=(4, 9))
         ttk.Label(left, text="iTunes 区域", style="Card.TLabel").pack(anchor="w")
@@ -300,6 +302,8 @@ class DiscTagApp:
         self.search_button.pack(side="left", fill="x", expand=True)
         self.manual_button = ttk.Button(search_row, text="手动模式", command=self._manual_mode)
         self.manual_button.pack(side="left", padx=(8, 0))
+        self.clear_button = ttk.Button(search_row, text="清除", width=6, command=self._clear_album)
+        self.clear_button.pack(side="left", padx=(8, 0))
 
         ttk.Label(left, text="搜索结果 · 选择后自动载入曲目", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
         results_frame = ttk.Frame(left, style="Card.TFrame")
@@ -440,6 +444,27 @@ class DiscTagApp:
         self._refresh_tracks()
         self.status_var.set(f"已导入 {len(files)} 个 WAV 文件")
 
+    def _clear_album(self) -> None:
+        if self.converting:
+            return
+        self.search_request_id += 1
+        self.album_request_id += 1
+        self.cover_request_id += 1
+        for variable in (self.album_var, self.artist_var, self.album_artist_var, self.date_var, self.genre_var):
+            variable.set("")
+        self.results = []
+        self.results_tree.delete(*self.results_tree.get_children())
+        self.album = None
+        self.album_region = ""
+        self.metadata_dirty = False
+        self.cover_data = None
+        self._clear_cover()
+        self.album_info_var.set("搜索并选择专辑，或进入手动模式")
+        self.search_button.configure(state="normal")
+        self._refresh_tracks()
+        self.status_var.set("已清空专辑资料，可输入新专辑；已导入的 WAV 保持不变")
+        self.album_entry.focus_set()
+
     def _search(self) -> None:
         if not self.album_var.get().strip():
             messagebox.showwarning("缺少专辑名称", "请先输入专辑名称。", parent=self.root)
@@ -447,6 +472,8 @@ class DiscTagApp:
         region = self.region_var.get()
         album = self.album_var.get().strip()
         artist = self.artist_var.get().strip()
+        self.search_request_id += 1
+        request_id = self.search_request_id
         self.search_button.configure(state="disabled")
         if region == "ALL":
             self.status_var.set("正在并行查询全部地区…")
@@ -459,6 +486,8 @@ class DiscTagApp:
             return self.client.search_albums(album, artist, region)
 
         def done(results: list[AlbumSummary]):
+            if request_id != self.search_request_id:
+                return
             self.search_button.configure(state="normal")
             self.results = results
             self.results_tree.delete(*self.results_tree.get_children())
@@ -472,9 +501,11 @@ class DiscTagApp:
             elif self.client.last_warnings:
                 messagebox.showwarning("地区查询失败", "\n".join(self.client.last_warnings), parent=self.root)
 
-        self._run_async(work, done, self._search_failed)
+        self._run_async(work, done, lambda error: self._search_failed(error, request_id))
 
-    def _search_failed(self, error: Exception) -> None:
+    def _search_failed(self, error: Exception, request_id: int) -> None:
+        if request_id != self.search_request_id:
+            return
         self.search_button.configure(state="normal")
         self.status_var.set("iTunes 查询失败")
         messagebox.showerror("搜索失败", str(error), parent=self.root)
@@ -984,6 +1015,7 @@ class DiscTagApp:
         self.converting = True
         self.convert_button.configure(state="disabled")
         self.search_button.configure(state="disabled")
+        self.clear_button.configure(state="disabled")
         self.progress_var.set(0)
         self.progress.configure(maximum=len(sources))
         self.status_var.set("正在准备处理…")
@@ -1005,6 +1037,7 @@ class DiscTagApp:
         self.converting = False
         self.convert_button.configure(state="normal")
         self.search_button.configure(state="normal")
+        self.clear_button.configure(state="normal")
         self.last_output = result.output_directory
         self.progress_var.set(len(self.sources))
         if result.failures:
@@ -1020,6 +1053,7 @@ class DiscTagApp:
         self.converting = False
         self.convert_button.configure(state="normal")
         self.search_button.configure(state="normal")
+        self.clear_button.configure(state="normal")
         self.status_var.set("处理失败")
         messagebox.showerror("处理失败", str(error), parent=self.root)
 
