@@ -53,8 +53,8 @@ Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中�
 
 工作流位于 `.github/workflows/build-macos.yml`，支持手动触发，也会在推送 `v*` 标签时运行：
 
-- `macos-14`：Apple Silicon。
-- `macos-13`：Intel。
+- `macos-15`：Apple Silicon。
+- `macos-15-intel`：Intel。
 
 每个任务生成一个经过 ad-hoc 签名的 `DiscTag.app`，并上传对应的 DMG 构建产物。
 
