@@ -27,7 +27,6 @@ a = Analysis(
         "bcrypt",
         "setuptools",
         "pkg_resources",
-        "jaraco",
         "wheel",
         "pip",
         "psutil",
@@ -88,7 +87,7 @@ if sys.platform == "darwin":
         bundle_identifier="app.disctag.desktop",
         info_plist={
             "CFBundleDisplayName": "DiscTag",
-            "CFBundleShortVersionString": "1.6.0",
+            "CFBundleShortVersionString": "1.6.1",
             "NSHighResolutionCapable": True,
         },
     )
