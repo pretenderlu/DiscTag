@@ -27,6 +27,7 @@ from .audio import (
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .matching import align_tracks_by_duration
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
+from .updates import check_for_updates
 
 
 BACKGROUND = "#F3F5FA"
@@ -39,6 +40,7 @@ BORDER = "#E3E6EF"
 SUCCESS = "#167A5B"
 DANGER = "#B34452"
 REPOSITORY_URL = "https://github.com/pretenderlu/DiscTag"
+LATEST_RELEASE_URL = f"{REPOSITORY_URL}/releases/latest"
 
 
 class DiscTagApp:
@@ -67,6 +69,7 @@ class DiscTagApp:
         self.cover_preview = None
         self.icon_image = None
         self.last_output: Path | None = None
+        self.latest_release_url = LATEST_RELEASE_URL
         self.converting = False
         self.album_var = tk.StringVar()
         self.artist_var = tk.StringVar()
@@ -95,6 +98,7 @@ class DiscTagApp:
         self._load_icon()
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
+        self.root.after(300, self._check_for_updates)
 
     @staticmethod
     def _enable_dpi_awareness() -> None:
@@ -411,18 +415,30 @@ class DiscTagApp:
         status_bar.pack(side="bottom", fill="x")
         status = ttk.Label(status_bar, textvariable=self.status_var, padding=(self._px(22), 0, self._px(12), self._px(10)), anchor="w")
         status.pack(side="left", fill="x", expand=True)
+        version_frame = tk.Frame(status_bar, bg=BACKGROUND)
+        version_frame.pack(side="right")
         self.github_link = tk.Label(
-            status_bar,
+            version_frame,
             text=f"GitHub  ·  v{__version__}",
             bg=BACKGROUND,
             fg=ACCENT,
             font=(self.ui_font, 10),
             cursor="hand2",
-            padx=self._px(22),
+            padx=self._px(12),
             pady=self._px(7),
         )
-        self.github_link.pack(side="right")
-        self.github_link.bind("<Button-1>", lambda _event: webbrowser.open(REPOSITORY_URL, new=2))
+        self.github_link.pack(side="left")
+        self.update_dot = tk.Label(
+            version_frame,
+            text="●",
+            bg=BACKGROUND,
+            fg="#1A9B72",
+            font=(self.ui_font, 11),
+            cursor="hand2",
+            pady=self._px(5),
+        )
+        self.github_link.bind("<Button-1>", lambda _event: self._open_latest_release())
+        self.update_dot.bind("<Button-1>", lambda _event: self._open_latest_release())
 
     def _import_wav(self) -> None:
         selected = filedialog.askdirectory(title="选择包含 WAV 音轨的文件夹")
@@ -1056,6 +1072,23 @@ class DiscTagApp:
         self.clear_button.configure(state="normal")
         self.status_var.set("处理失败")
         messagebox.showerror("处理失败", str(error), parent=self.root)
+
+    def _check_for_updates(self) -> None:
+        def work():
+            return check_for_updates(__version__)
+
+        def done(info):
+            if not info:
+                return
+            self.latest_release_url = info.url
+            if not self.update_dot.winfo_ismapped():
+                self.update_dot.pack(side="left", padx=(self._px(4), 0))
+            self.status_var.set(f"发现新版本 {info.version} · 点击右下角 GitHub 或圆点打开发布页")
+
+        self._run_async(work, done, lambda _error: None)
+
+    def _open_latest_release(self) -> None:
+        webbrowser.open(self.latest_release_url, new=2)
 
     def _run_async(self, work, done, failed) -> None:
         def runner():
