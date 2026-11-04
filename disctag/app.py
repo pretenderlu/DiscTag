@@ -27,6 +27,7 @@ from .audio import (
 )
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .matching import align_tracks_by_duration
+from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
 from .updates import check_for_updates
 
@@ -75,6 +76,8 @@ class DiscTagApp:
         self.icon_click_count = 0
         self.first_icon_click_time = 0.0
         self.easter_egg_dialog = None
+        self.easter_egg_image = None
+        self.fireworks = None
         self.album_var = tk.StringVar()
         self.artist_var = tk.StringVar()
         self.album_artist_var = tk.StringVar()
@@ -463,34 +466,27 @@ class DiscTagApp:
     def _show_easter_egg(self) -> None:
         dialog = tk.Toplevel(self.root)
         self.easter_egg_dialog = dialog
-        dialog.title("DiscTag · 隐藏彩蛋")
-        dialog.configure(bg="#1D1C31")
+        dialog.title("DiscTag · 水友驱动开发")
+        dialog.configure(bg="#F5F0E7")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         if self.icon_image:
             dialog.iconphoto(False, self.icon_image)
-        frame = tk.Frame(dialog, bg="#1D1C31", padx=self._px(28), pady=self._px(24))
-        frame.pack(fill="both", expand=True)
-        if hasattr(self, "header_icon"):
-            tk.Label(frame, image=self.header_icon, bg="#1D1C31").pack(pady=(0, self._px(10)))
-        tk.Label(frame, text="水友驱动开发", bg="#1D1C31", fg="#FFFFFF", font=(self.ui_semibold, 20)).pack()
-        tk.Label(
-            frame,
-            text="为了满足 EvoAria（埃沃）Evo Era专属吹水\n群水友的需求，让 AI 迅速搓了这么一个软件。",
-            bg="#1D1C31",
-            fg="#D8D4F0",
-            font=(self.cjk_font, 12),
-            justify="center",
-        ).pack(pady=(self._px(16), self._px(8)))
-        tk.Label(
-            frame,
-            text="—— 加急出货，献给每一位 CD 爱好者",
-            bg="#1D1C31",
-            fg="#9E99BC",
-            font=(self.cjk_font, 10),
-        ).pack(pady=(0, self._px(18)))
-        close_button = ttk.Button(frame, text="好耶，继续整理音乐", style="Accent.TButton", command=self._close_easter_egg)
-        close_button.pack()
+        width = min(self._px(1100), int(self.root.winfo_screenwidth() * 0.85))
+        height = round(width * 647 / 1685)
+        image = Image.open(_resource_path("assets/easter-egg-preview.png")).convert("RGB")
+        image = image.resize((width, height), Image.Resampling.LANCZOS)
+        self.easter_egg_image = ImageTk.PhotoImage(image)
+        canvas = tk.Canvas(dialog, width=width, height=height, highlightthickness=0, bg="#F5F0E7")
+        canvas.pack()
+        canvas.create_image(0, 0, anchor="nw", image=self.easter_egg_image)
+        self.fireworks = Fireworks(canvas, width, height, self.ui_scale)
+        self.fireworks.start()
+        canvas.bind("<Button-1>", lambda event: self.fireworks.burst(event.x, event.y))
+        button_frame = tk.Frame(dialog, bg="#F5F0E7")
+        button_frame.pack(fill="x")
+        close_button = ttk.Button(button_frame, text="好耶，继续整理音乐", style="Accent.TButton", command=self._close_easter_egg)
+        close_button.pack(pady=self._px(9))
         close_button.focus_set()
         dialog.protocol("WM_DELETE_WINDOW", self._close_easter_egg)
         dialog.bind("<Escape>", lambda _event: self._close_easter_egg())
@@ -499,9 +495,13 @@ class DiscTagApp:
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         dialog.grab_set()
-        self.status_var.set("你发现了隐藏彩蛋：水友驱动开发")
+        self.status_var.set("你发现了隐藏彩蛋：水友驱动开发 · 点击画面可追加烟花")
 
     def _close_easter_egg(self) -> None:
+        if self.fireworks:
+            self.fireworks.stop()
+            self.fireworks = None
+        self.easter_egg_image = None
         if self.easter_egg_dialog and self.easter_egg_dialog.winfo_exists():
             self.easter_egg_dialog.destroy()
         self.easter_egg_dialog = None
@@ -1182,6 +1182,7 @@ class DiscTagApp:
     def _close(self) -> None:
         if self.converting and not messagebox.askyesno("处理仍在进行", "现在退出会中断未完成的处理，确定退出吗？", parent=self.root):
             return
+        self._close_easter_egg()
         self._save_settings()
         self.root.destroy()
 
