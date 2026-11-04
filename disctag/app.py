@@ -14,6 +14,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps, ImageTk
+import keyring
 
 from . import __version__
 from .audio import (
@@ -25,6 +26,7 @@ from .audio import (
     output_path,
     wav_duration,
 )
+from .discogs import DiscogsClient
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .matching import align_tracks_by_duration
 from .fireworks import Fireworks
@@ -62,6 +64,7 @@ class DiscTagApp:
         self.root.configure(bg=BACKGROUND)
         self.settings = self._load_settings()
         self.client = ITunesClient()
+        self.discogs_client = DiscogsClient()
         self.sources: list[Path] = []
         self.results: list[AlbumSummary] = []
         self.album: AlbumMetadata | None = None
@@ -88,6 +91,8 @@ class DiscTagApp:
         self.format_var = tk.StringVar(value=self.settings.get("format", "flac"))
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
         self.region_var = tk.StringVar(value=self.settings.get("region", "US"))
+        self.metadata_source_var = tk.StringVar(value=self.settings.get("metadata_source", "iTunes / Apple Music"))
+        self.discogs_token_var = tk.StringVar(value=self._read_discogs_token())
         saved_cover_size = self.settings.get("cover_size", 1200)
         if saved_cover_size not in COVER_SIZES:
             saved_cover_size = 1200
@@ -300,29 +305,44 @@ class DiscTagApp:
         ttk.Label(left, text="2  匹配专辑资料", style="Title.Card.TLabel").pack(anchor="w", pady=(0, 12))
         ttk.Label(left, text="专辑名称", style="Card.TLabel").pack(anchor="w")
         self.album_entry = ttk.Entry(left, textvariable=self.album_var)
-        self.album_entry.pack(fill="x", pady=(4, 9))
+        self.album_entry.pack(fill="x", pady=(4, 6))
         ttk.Label(left, text="歌手名称", style="Card.TLabel").pack(anchor="w")
-        ttk.Entry(left, textvariable=self.artist_var).pack(fill="x", pady=(4, 9))
-        ttk.Label(left, text="iTunes 区域", style="Card.TLabel").pack(anchor="w")
+        ttk.Entry(left, textvariable=self.artist_var).pack(fill="x", pady=(4, 6))
+        ttk.Label(left, text="曲库来源", style="Card.TLabel").pack(anchor="w")
+        self.metadata_source_combo = ttk.Combobox(
+            left,
+            textvariable=self.metadata_source_var,
+            values=("iTunes / Apple Music", "Discogs"),
+            state="readonly",
+        )
+        self.metadata_source_combo.pack(fill="x", pady=(4, 6))
+        self.metadata_source_combo.bind("<<ComboboxSelected>>", self._metadata_source_changed)
+        self.token_header = ttk.Frame(left, style="Card.TFrame")
+        ttk.Label(self.token_header, text="Discogs 令牌", style="Card.TLabel").pack(side="left")
+        token_link = ttk.Label(self.token_header, text="申请令牌", foreground=ACCENT, cursor="hand2")
+        token_link.pack(side="right")
+        token_link.bind("<Button-1>", lambda _event: webbrowser.open("https://www.discogs.com/settings/developers", new=2))
+        self.discogs_token_entry = ttk.Entry(left, textvariable=self.discogs_token_var, show="●")
+        self.region_label = ttk.Label(left, text="iTunes 区域", style="Card.TLabel")
         self.region_combo = ttk.Combobox(left, state="readonly", values=_region_labels())
-        self.region_combo.pack(fill="x", pady=(4, 10))
         self.region_combo.set(_region_label(self.region_var.get()))
         self.region_combo.bind("<<ComboboxSelected>>", self._region_changed)
 
         search_row = ttk.Frame(left, style="Card.TFrame")
-        search_row.pack(fill="x", pady=(0, 12))
+        search_row.pack(fill="x", pady=(0, 8))
         self.search_button = ttk.Button(search_row, text="搜索 iTunes", style="Accent.TButton", command=self._search)
         self.search_button.pack(side="left", fill="x", expand=True)
         self.manual_button = ttk.Button(search_row, text="手动模式", command=self._manual_mode)
         self.manual_button.pack(side="left", padx=(8, 0))
         self.clear_button = ttk.Button(search_row, text="清除", width=6, command=self._clear_album)
         self.clear_button.pack(side="left", padx=(8, 0))
+        self._metadata_source_changed()
 
         ttk.Label(left, text="搜索结果 · 选择后自动载入曲目", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
         results_frame = ttk.Frame(left, style="Card.TFrame")
         results_frame.pack(fill="both", expand=True)
         columns = ("region", "album", "artist")
-        self.results_tree = ttk.Treeview(results_frame, columns=columns, show="headings", selectmode="browse", height=5)
+        self.results_tree = ttk.Treeview(results_frame, columns=columns, show="headings", selectmode="browse", height=3)
         self.results_tree.heading("region", text="地区")
         self.results_tree.heading("album", text="专辑")
         self.results_tree.heading("artist", text="歌手")
@@ -551,13 +571,22 @@ class DiscTagApp:
         if not self.album_var.get().strip():
             messagebox.showwarning("缺少专辑名称", "请先输入专辑名称。", parent=self.root)
             return
+        source = self.metadata_source_var.get()
         region = self.region_var.get()
         album = self.album_var.get().strip()
         artist = self.artist_var.get().strip()
+        token = self.discogs_token_var.get().strip()
+        if source == "Discogs" and not token:
+            messagebox.showwarning("需要 Discogs 令牌", "请先点击“申请令牌”创建 Personal Access Token，再粘贴到令牌输入框。", parent=self.root)
+            self.discogs_token_entry.focus_set()
+            return
+        self._save_discogs_token()
         self.search_request_id += 1
         request_id = self.search_request_id
         self.search_button.configure(state="disabled")
-        if region == "ALL":
+        if source == "Discogs":
+            self.status_var.set("正在查询 Discogs 实体唱片曲库…")
+        elif region == "ALL":
             self.status_var.set("正在并行查询全部地区…")
         elif region == "CN":
             self.status_var.set("正在查询中国大陆 Apple Music 公开网页…")
@@ -565,6 +594,8 @@ class DiscTagApp:
             self.status_var.set(f"正在查询 {ITUNES_REGIONS[region]} iTunes…")
 
         def work():
+            if source == "Discogs":
+                return self.discogs_client.search_albums(album, artist, token)
             return self.client.search_albums(album, artist, region)
 
         def done(results: list[AlbumSummary]):
@@ -575,12 +606,12 @@ class DiscTagApp:
             self.results_tree.delete(*self.results_tree.get_children())
             for index, entry in enumerate(results):
                 self.results_tree.insert("", "end", iid=str(index), values=(entry.country, entry.title, entry.artist))
-            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if self.client.last_warnings else ""
+            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source != "Discogs" and self.client.last_warnings else ""
             self.status_var.set(f"找到 {len(results)} 个专辑版本{warning}" if results else "没有找到专辑，请更换关键词或地区")
             if results:
                 self.results_tree.selection_set("0")
                 self.results_tree.focus("0")
-            elif self.client.last_warnings:
+            elif source != "Discogs" and self.client.last_warnings:
                 messagebox.showwarning("地区查询失败", "\n".join(self.client.last_warnings), parent=self.root)
 
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
@@ -589,7 +620,7 @@ class DiscTagApp:
         if request_id != self.search_request_id:
             return
         self.search_button.configure(state="normal")
-        self.status_var.set("iTunes 查询失败")
+        self.status_var.set(f"{self.metadata_source_var.get()} 查询失败")
         messagebox.showerror("搜索失败", str(error), parent=self.root)
 
     def _album_selected(self, _event=None) -> None:
@@ -611,13 +642,23 @@ class DiscTagApp:
         self.status_var.set(f"正在载入 {summary.title}（{summary.country}）…")
 
         def work():
-            album = self.client.get_album(summary.collection_id, summary.country)
-            cover_error = None
-            try:
-                cover = self.client.download_cover(album.artwork_url, cover_size)
-            except Exception as exc:
-                cover = None
-                cover_error = str(exc)
+            if summary.source == "discogs":
+                token = self.discogs_token_var.get().strip()
+                album = self.discogs_client.get_album(summary.collection_id, token)
+                cover_error = None
+                try:
+                    cover = self.discogs_client.download_cover(album.artwork_url, cover_size, token)
+                except Exception as exc:
+                    cover = None
+                    cover_error = str(exc)
+            else:
+                album = self.client.get_album(summary.collection_id, summary.country)
+                cover_error = None
+                try:
+                    cover = self.client.download_cover(album.artwork_url, cover_size)
+                except Exception as exc:
+                    cover = None
+                    cover_error = str(exc)
             return album, cover, cover_error
 
         def done(result):
@@ -977,12 +1018,14 @@ class DiscTagApp:
         request_id = self.cover_request_id
         size = self._cover_size_value()
         if not self.album or not self.album.artwork_url or self.cover_is_local:
-            self.status_var.set(f"封面上限已设为 {size}×{size}，将在下次 iTunes 下载时生效")
+            self.status_var.set(f"封面上限已设为 {size}×{size}，将在下次在线下载时生效")
             return
         artwork_url = self.album.artwork_url
         self.status_var.set(f"正在获取最高 {size}×{size} 的封面…")
 
         def work():
+            if self.album.source == "discogs":
+                return self.discogs_client.download_cover(artwork_url, size, self.discogs_token_var.get().strip())
             return self.client.download_cover(artwork_url, size)
 
         def done(data: bytes):
@@ -1175,6 +1218,51 @@ class DiscTagApp:
             else:
                 self.status_var.set("就绪")
 
+    def _metadata_source_changed(self, _event=None) -> None:
+        is_discogs = self.metadata_source_var.get() == "Discogs"
+        if is_discogs:
+            self.region_label.pack_forget()
+            self.region_combo.pack_forget()
+            self.token_header.pack(fill="x")
+            self.discogs_token_entry.pack(fill="x", pady=(4, 6))
+            self.search_button.configure(text="搜索 Discogs")
+        else:
+            self.token_header.pack_forget()
+            self.discogs_token_entry.pack_forget()
+            self.region_label.pack(anchor="w")
+            self.region_combo.pack(fill="x", pady=(4, 6))
+            self.search_button.configure(text="搜索 iTunes")
+        if _event is not None:
+            self.search_request_id += 1
+            self.album_request_id += 1
+            self.cover_request_id += 1
+            self.results = []
+            self.results_tree.delete(*self.results_tree.get_children())
+            self.album = None
+            self.album_region = ""
+            self.metadata_dirty = False
+            self.cover_data = None
+            self._clear_cover()
+            self.album_info_var.set("搜索并选择专辑，或进入手动模式")
+            self._refresh_tracks()
+            self.status_var.set("已切换曲库，专辑名称和歌手已保留，可重新搜索")
+
+    def _read_discogs_token(self) -> str:
+        try:
+            return keyring.get_password("DiscTag", "discogs_token") or ""
+        except Exception:
+            return ""
+
+    def _save_discogs_token(self) -> None:
+        token = self.discogs_token_var.get().strip()
+        try:
+            if token:
+                keyring.set_password("DiscTag", "discogs_token", token)
+            else:
+                keyring.delete_password("DiscTag", "discogs_token")
+        except Exception:
+            pass
+
     def _region_changed(self, _event=None) -> None:
         label = self.region_combo.get()
         self.region_var.set(_region_code(label))
@@ -1193,11 +1281,13 @@ class DiscTagApp:
             return {}
 
     def _save_settings(self) -> None:
+        self._save_discogs_token()
         settings = {
             "output": self.output_var.get(),
             "format": self.format_var.get(),
             "quality": self.quality_var.get(),
             "region": self.region_var.get(),
+            "metadata_source": self.metadata_source_var.get(),
             "cover_size": self._cover_size_value(),
         }
         try:

@@ -12,6 +12,7 @@ class AlbumSummary:
     track_count: int = 0
     artwork_url: str = ""
     country: str = ""
+    source: str = "itunes"
 
 
 @dataclass
@@ -36,6 +37,7 @@ class AlbumMetadata:
     artwork_url: str = ""
     collection_id: int | None = None
     tracks: list[TrackMetadata] = field(default_factory=list)
+    source: str = "itunes"
 
 
 def renumber_tracks(tracks: list[TrackMetadata]) -> None:
