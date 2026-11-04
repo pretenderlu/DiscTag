@@ -18,6 +18,7 @@ ITUNES_REGIONS = {
     "HK": "中国香港",
     "TW": "中国台湾",
 }
+COVER_SIZES = (600, 1200, 2400, 3000)
 
 
 class ITunesError(RuntimeError):
@@ -134,11 +135,17 @@ class ITunesClient:
             tracks=tracks,
         )
 
-    def download_cover(self, artwork_url: str) -> bytes:
+    def download_cover(self, artwork_url: str, size: int = 1200) -> bytes:
         if not artwork_url:
             raise ITunesError("这张专辑没有可用封面。")
-        high_resolution = re.sub(r"\d+x\d+bb(\.[A-Za-z]+)$", r"1200x1200bb\1", artwork_url)
-        urls = list(dict.fromkeys((high_resolution, artwork_url)))
+        if size not in COVER_SIZES:
+            raise ITunesError("不支持的封面规格。")
+        candidate_sizes = [size, *(candidate for candidate in reversed(COVER_SIZES) if candidate < size), 100]
+        urls = []
+        for candidate in candidate_sizes:
+            url = re.sub(r"\d+x\d+bb(\.[A-Za-z]+)$", rf"{candidate}x{candidate}bb\1", artwork_url)
+            if url not in urls:
+                urls.append(url)
         last_error = None
         for url in urls:
             try:
@@ -148,7 +155,7 @@ class ITunesClient:
                     raise ITunesError("封面文件过大。")
                 image = Image.open(io.BytesIO(response.content))
                 image = ImageOps.exif_transpose(image).convert("RGB")
-                image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+                image.thumbnail((size, size), Image.Resampling.LANCZOS)
                 output = io.BytesIO()
                 image.save(output, format="JPEG", quality=94, optimize=True)
                 return output.getvalue()

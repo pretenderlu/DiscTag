@@ -24,7 +24,7 @@ from .audio import (
     output_path,
     wav_duration,
 )
-from .itunes import ITUNES_REGIONS, ITunesClient
+from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .matching import align_tracks_by_duration
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
 
@@ -78,6 +78,14 @@ class DiscTagApp:
         self.format_var = tk.StringVar(value=self.settings.get("format", "flac"))
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
         self.region_var = tk.StringVar(value=self.settings.get("region", "US"))
+        saved_cover_size = self.settings.get("cover_size", 1200)
+        if saved_cover_size not in COVER_SIZES:
+            saved_cover_size = 1200
+        self.cover_size_var = tk.StringVar(value=_cover_size_label(saved_cover_size))
+        self.cover_info_var = tk.StringVar()
+        self.cover_request_id = 0
+        self.album_request_id = 0
+        self.cover_is_local = False
         self.album_info_var = tk.StringVar(value="搜索并选择专辑，或进入手动模式")
         self.match_var = tk.StringVar(value="先导入 WAV 文件")
         self.status_var = tk.StringVar(value="就绪")
@@ -328,7 +336,20 @@ class DiscTagApp:
         ttk.Label(fields, text="流派", style="Card.TLabel").grid(row=0, column=2, sticky="w")
         ttk.Entry(fields, textvariable=self.genre_var, width=12).grid(row=1, column=2, sticky="ew")
         fields.columnconfigure(0, weight=1)
-        ttk.Button(details, text="选择本地封面", command=self._choose_cover).pack(anchor="w", pady=(8, 0))
+        cover_row = ttk.Frame(details, style="Card.TFrame")
+        cover_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(cover_row, text="封面上限", style="Card.TLabel").pack(side="left", padx=(0, 6))
+        self.cover_size_combo = ttk.Combobox(
+            cover_row,
+            textvariable=self.cover_size_var,
+            values=_cover_size_labels(),
+            state="readonly",
+            width=12,
+        )
+        self.cover_size_combo.pack(side="left")
+        self.cover_size_combo.bind("<<ComboboxSelected>>", self._cover_size_changed)
+        ttk.Button(cover_row, text="本地封面", command=self._choose_cover).pack(side="left", padx=(8, 0))
+        ttk.Label(cover_row, textvariable=self.cover_info_var, style="Muted.Card.TLabel").pack(side="left", padx=(10, 0))
 
         track_tools = ttk.Frame(right, style="Card.TFrame")
         track_tools.pack(fill="x", pady=(0, 6))
@@ -466,24 +487,30 @@ class DiscTagApp:
             )
             if not replace:
                 return
+        cover_size = self._cover_size_value()
+        self.album_request_id += 1
+        request_id = self.album_request_id
         self.status_var.set(f"正在载入 {summary.title}（{summary.country}）…")
 
         def work():
             album = self.client.get_album(summary.collection_id, summary.country)
             cover_error = None
             try:
-                cover = self.client.download_cover(album.artwork_url)
+                cover = self.client.download_cover(album.artwork_url, cover_size)
             except Exception as exc:
                 cover = None
                 cover_error = str(exc)
             return album, cover, cover_error
 
         def done(result):
+            if request_id != self.album_request_id:
+                return
             album, cover, cover_error = result
             self.album = album
             self.album_region = summary.country
             self.metadata_dirty = False
             self.cover_data = cover
+            self.cover_is_local = False
             self.album_var.set(album.title)
             self.artist_var.set(album.artist)
             self.album_artist_var.set(album.album_artist)
@@ -824,6 +851,36 @@ class DiscTagApp:
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
 
+    def _cover_size_value(self) -> int:
+        return int(self.cover_size_var.get().split(" ")[0])
+
+    def _cover_size_changed(self, _event=None) -> None:
+        self.cover_request_id += 1
+        request_id = self.cover_request_id
+        size = self._cover_size_value()
+        if not self.album or not self.album.artwork_url or self.cover_is_local:
+            self.status_var.set(f"封面上限已设为 {size}×{size}，将在下次 iTunes 下载时生效")
+            return
+        artwork_url = self.album.artwork_url
+        self.status_var.set(f"正在获取最高 {size}×{size} 的封面…")
+
+        def work():
+            return self.client.download_cover(artwork_url, size)
+
+        def done(data: bytes):
+            if request_id != self.cover_request_id:
+                return
+            self.cover_data = data
+            self.cover_is_local = False
+            self._show_cover(data)
+            self.status_var.set(f"封面已更新 · {self.cover_info_var.get()}")
+
+        def failed(error: Exception):
+            if request_id == self.cover_request_id:
+                self.status_var.set(f"封面下载失败：{error}")
+
+        self._run_async(work, done, failed)
+
     def _choose_cover(self) -> None:
         selected = filedialog.askopenfilename(title="选择专辑封面", filetypes=[("图片", "*.jpg *.jpeg *.png *.webp"), ("所有文件", "*.*")])
         if not selected:
@@ -834,7 +891,9 @@ class DiscTagApp:
             image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
             output = io.BytesIO()
             image.save(output, "JPEG", quality=94, optimize=True)
+            self.cover_request_id += 1
             self.cover_data = output.getvalue()
+            self.cover_is_local = True
             self._show_cover(self.cover_data)
             self.status_var.set("已使用本地封面")
         except OSError as exc:
@@ -842,6 +901,7 @@ class DiscTagApp:
 
     def _show_cover(self, data: bytes) -> None:
         image = Image.open(io.BytesIO(data)).convert("RGB")
+        self.cover_info_var.set(f"实际 {image.width}×{image.height}")
         size = self._px(164)
         image = ImageOps.contain(image, (size, size), Image.Resampling.LANCZOS)
         self.cover_preview = ImageTk.PhotoImage(image)
@@ -849,6 +909,8 @@ class DiscTagApp:
 
     def _clear_cover(self) -> None:
         self.cover_preview = None
+        self.cover_is_local = False
+        self.cover_info_var.set("")
         self.cover_label.configure(image="", text="专辑封面", width=20, height=8)
 
     def _choose_output(self) -> None:
@@ -997,6 +1059,7 @@ class DiscTagApp:
             "format": self.format_var.get(),
             "quality": self.quality_var.get(),
             "region": self.region_var.get(),
+            "cover_size": self._cover_size_value(),
         }
         try:
             path = _settings_path()
@@ -1040,6 +1103,14 @@ def _region_code(label: str) -> str:
         if label == f"{name}（{code}）":
             return code
     return "US"
+
+
+def _cover_size_labels() -> list[str]:
+    return [_cover_size_label(size) for size in COVER_SIZES]
+
+
+def _cover_size_label(size: int) -> str:
+    return f"{size} × {size}"
 
 
 def _duration(milliseconds: float | int | None) -> str:
