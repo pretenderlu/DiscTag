@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
@@ -71,6 +72,9 @@ class DiscTagApp:
         self.last_output: Path | None = None
         self.latest_release_url = LATEST_RELEASE_URL
         self.converting = False
+        self.icon_click_count = 0
+        self.first_icon_click_time = 0.0
+        self.easter_egg_dialog = None
         self.album_var = tk.StringVar()
         self.artist_var = tk.StringVar()
         self.album_artist_var = tk.StringVar()
@@ -265,7 +269,9 @@ class DiscTagApp:
         header_content = tk.Frame(header, bg="#1D1C31")
         header_content.pack(fill="both", expand=True, padx=self._px(26), pady=self._px(16))
         if hasattr(self, "header_icon"):
-            tk.Label(header_content, image=self.header_icon, bg="#1D1C31").pack(side="left", padx=(0, self._px(15)))
+            self.header_icon_label = tk.Label(header_content, image=self.header_icon, bg="#1D1C31")
+            self.header_icon_label.pack(side="left", padx=(0, self._px(15)))
+            self.header_icon_label.bind("<Button-1>", self._icon_clicked)
         titles = tk.Frame(header_content, bg="#1D1C31")
         titles.pack(side="left", fill="y")
         tk.Label(titles, text="DiscTag", bg="#1D1C31", fg="#FFFFFF", font=(self.ui_semibold, 24)).pack(anchor="w")
@@ -439,6 +445,66 @@ class DiscTagApp:
         )
         self.github_link.bind("<Button-1>", lambda _event: self._open_latest_release())
         self.update_dot.bind("<Button-1>", lambda _event: self._open_latest_release())
+
+    def _icon_clicked(self, _event=None) -> None:
+        if self.easter_egg_dialog and self.easter_egg_dialog.winfo_exists():
+            return
+        now = time.monotonic()
+        if now - self.first_icon_click_time > 2.5:
+            self.icon_click_count = 1
+            self.first_icon_click_time = now
+        else:
+            self.icon_click_count += 1
+        if self.icon_click_count >= 7:
+            self.icon_click_count = 0
+            self.first_icon_click_time = 0.0
+            self._show_easter_egg()
+
+    def _show_easter_egg(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        self.easter_egg_dialog = dialog
+        dialog.title("DiscTag · 隐藏彩蛋")
+        dialog.configure(bg="#1D1C31")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        if self.icon_image:
+            dialog.iconphoto(False, self.icon_image)
+        frame = tk.Frame(dialog, bg="#1D1C31", padx=self._px(28), pady=self._px(24))
+        frame.pack(fill="both", expand=True)
+        if hasattr(self, "header_icon"):
+            tk.Label(frame, image=self.header_icon, bg="#1D1C31").pack(pady=(0, self._px(10)))
+        tk.Label(frame, text="水友驱动开发", bg="#1D1C31", fg="#FFFFFF", font=(self.ui_semibold, 20)).pack()
+        tk.Label(
+            frame,
+            text="为了满足某某群水友的需求，\n让 AI 迅速搓了这么一个软件。",
+            bg="#1D1C31",
+            fg="#D8D4F0",
+            font=(self.cjk_font, 12),
+            justify="center",
+        ).pack(pady=(self._px(16), self._px(8)))
+        tk.Label(
+            frame,
+            text="—— 加急出货，献给每一位 CD 爱好者",
+            bg="#1D1C31",
+            fg="#9E99BC",
+            font=(self.cjk_font, 10),
+        ).pack(pady=(0, self._px(18)))
+        close_button = ttk.Button(frame, text="好耶，继续整理音乐", style="Accent.TButton", command=self._close_easter_egg)
+        close_button.pack()
+        close_button.focus_set()
+        dialog.protocol("WM_DELETE_WINDOW", self._close_easter_egg)
+        dialog.bind("<Escape>", lambda _event: self._close_easter_egg())
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+        self.status_var.set("你发现了隐藏彩蛋：水友驱动开发")
+
+    def _close_easter_egg(self) -> None:
+        if self.easter_egg_dialog and self.easter_egg_dialog.winfo_exists():
+            self.easter_egg_dialog.destroy()
+        self.easter_egg_dialog = None
 
     def _import_wav(self) -> None:
         selected = filedialog.askdirectory(title="选择包含 WAV 音轨的文件夹")
