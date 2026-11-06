@@ -40,8 +40,6 @@ a = Analysis(
         "PIL._avif",
         "PIL.ImageCms",
         "PIL._imagingcms",
-        "PIL.ImageFont",
-        "PIL._imagingft",
         "PIL.ImageQt",
         "unittest",
         "doctest",
@@ -87,7 +85,7 @@ if sys.platform == "darwin":
         bundle_identifier="app.disctag.desktop",
         info_plist={
             "CFBundleDisplayName": "DiscTag",
-            "CFBundleShortVersionString": "1.6.2",
+            "CFBundleShortVersionString": "1.6.4",
             "NSHighResolutionCapable": True,
         },
     )

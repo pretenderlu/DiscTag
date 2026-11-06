@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -31,7 +32,11 @@ from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .matching import align_tracks_by_duration
 from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
-from .updates import check_for_updates
+from .playback import AudioPreview
+from .rounded_panel import RoundedPanel
+from .rounded_style import apply_rounded_styles
+from .updates import download_update, check_for_updates
+from .windowing import configure_native_window
 
 
 BACKGROUND = "#F3F5FA"
@@ -61,10 +66,12 @@ class DiscTagApp:
             self.ui_scale = max(1.0, pixels_per_inch / 96)
             self.root.tk.call("tk", "scaling", pixels_per_inch / 72)
         self._configure_window()
+        configure_native_window(self.root, "#1D1C31")
         self.root.configure(bg=BACKGROUND)
         self.settings = self._load_settings()
         self.client = ITunesClient()
         self.discogs_client = DiscogsClient()
+        self.preview = AudioPreview(self.root, self._playback_changed)
         self.sources: list[Path] = []
         self.results: list[AlbumSummary] = []
         self.album: AlbumMetadata | None = None
@@ -75,6 +82,8 @@ class DiscTagApp:
         self.icon_image = None
         self.last_output: Path | None = None
         self.latest_release_url = LATEST_RELEASE_URL
+        self.latest_update = None
+        self.updating = False
         self.converting = False
         self.icon_click_count = 0
         self.first_icon_click_time = 0.0
@@ -169,17 +178,33 @@ class DiscTagApp:
             "TCombobox",
             fieldbackground="#F8F9FC",
             foreground=INK,
+            background="#F8F9FC",
             bordercolor="#DCE0EB",
             lightcolor="#DCE0EB",
             darkcolor="#DCE0EB",
-            arrowcolor=MUTED,
-            padding=self._px(8),
+            arrowcolor=ACCENT,
+            arrowsize=self._px(13),
+            relief="flat",
+            padding=(self._px(10), self._px(11)),
         )
-        style.map("TCombobox", bordercolor=[("focus", ACCENT)], fieldbackground=[("readonly", "#F8F9FC")])
+        style.map(
+            "TCombobox",
+            bordercolor=[("focus", ACCENT)],
+            fieldbackground=[("readonly", "#F8F9FC")],
+            background=[("readonly", "#F8F9FC"), ("active", "#EEF0F6")],
+            arrowcolor=[("readonly", ACCENT), ("active", ACCENT_DARK)],
+            selectbackground=[("readonly", "#F8F9FC")],
+            selectforeground=[("readonly", INK)],
+        )
+        self.root.option_add("*TCombobox*Listbox.background", CARD)
+        self.root.option_add("*TCombobox*Listbox.foreground", INK)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#EAE6FF")
+        self.root.option_add("*TCombobox*Listbox.selectForeground", INK)
+        self.root.option_add("*TCombobox*Listbox.font", (self.ui_font, 10))
         style.configure(
             "TButton",
             font=(self.ui_font, 10),
-            padding=(self._px(15), self._px(10)),
+            padding=(self._px(10), self._px(10)),
             borderwidth=0,
             relief="flat",
             background="#EEF0F6",
@@ -197,8 +222,8 @@ class DiscTagApp:
                 button_style,
                 background=ACCENT,
                 foreground="#FFFFFF",
-                font=(self.ui_semibold, 11),
-                padding=(self._px(18), self._px(11)),
+                font=(self.ui_semibold, 10),
+                padding=(self._px(10), self._px(10)),
                 borderwidth=0,
                 relief="flat",
             )
@@ -207,7 +232,6 @@ class DiscTagApp:
                 background=[("disabled", "#C8C3EA"), ("pressed", "#4535B4"), ("active", ACCENT_DARK)],
                 foreground=[("disabled", "#F2F0FA")],
             )
-        style.configure("Convert.TButton", font=(self.ui_semibold, 12), padding=(self._px(24), self._px(13)))
         style.configure(
             "Treeview",
             background=CARD,
@@ -229,16 +253,22 @@ class DiscTagApp:
         )
         style.map("Treeview", background=[("selected", "#EAE6FF")], foreground=[("selected", INK)])
         style.map("Treeview.Heading", background=[("active", "#F5F6FA")])
-        style.configure(
-            "TRadiobutton",
-            background=CARD,
-            foreground=INK,
-            font=(self.ui_font, 10),
-            indicatorcolor="#F8F9FC",
-            bordercolor="#C8CDDB",
-            focusthickness=0,
-        )
-        style.map("TRadiobutton", indicatorcolor=[("active", "#EAE6FF"), ("selected", ACCENT)])
+        for selector_style in ("TRadiobutton", "TCheckbutton"):
+            style.configure(
+                selector_style,
+                background=CARD,
+                foreground=INK,
+                font=(self.ui_font, 10),
+                indicatorcolor="#F8F9FC",
+                selectcolor=ACCENT,
+                bordercolor="#C8CDDB",
+                focusthickness=0,
+            )
+            style.map(
+                selector_style,
+                indicatorcolor=[("active", "#EAE6FF"), ("selected", ACCENT)],
+                selectcolor=[("selected", ACCENT), ("active", ACCENT_DARK)],
+            )
         style.configure(
             "Horizontal.TProgressbar",
             troughcolor="#E8EAF2",
@@ -259,6 +289,7 @@ class DiscTagApp:
             arrowsize=self._px(12),
         )
         style.map("Vertical.TScrollbar", background=[("active", "#AEB5C8"), ("pressed", "#979FB5")])
+        self.rounded_style_images = apply_rounded_styles(self.root, style, self.ui_scale)
 
     def _load_icon(self) -> None:
         icon_path = _resource_path("assets/icon.png")
@@ -288,19 +319,22 @@ class DiscTagApp:
 
         body = ttk.Frame(self.root, padding=(self._px(22), self._px(18), self._px(22), self._px(12)))
         body.pack(fill="both", expand=True)
-        source_card = ttk.Frame(body, style="Card.TFrame", padding=self._px(16))
-        source_card.pack(fill="x", pady=(0, self._px(12)))
+        source_panel = RoundedPanel(body, padding=self._px(16), radius=self._px(10), fit_height=True)
+        source_card = source_panel.content
+        source_panel.pack(fill="x", pady=(0, self._px(12)))
         ttk.Label(source_card, text="1  导入 CD 音轨", style="Title.Card.TLabel").pack(side="left", padx=(0, self._px(18)))
         ttk.Button(source_card, text="选择 WAV 文件夹", command=self._import_wav).pack(side="left")
         ttk.Label(source_card, textvariable=self.source_var, style="Muted.Card.TLabel").pack(side="left", padx=self._px(16), fill="x", expand=True)
 
         content = ttk.Frame(body)
         content.pack(fill="both", expand=True)
-        left = ttk.Frame(content, style="Card.TFrame", padding=self._px(18), width=self._px(405))
-        left.pack(side="left", fill="y", padx=(0, self._px(12)))
-        left.pack_propagate(False)
-        right = ttk.Frame(content, style="Card.TFrame", padding=self._px(18))
-        right.pack(side="left", fill="both", expand=True)
+        left_panel = RoundedPanel(content, padding=self._px(18), width=self._px(405), radius=self._px(10))
+        left = left_panel.content
+        left_panel.pack(side="left", fill="y", padx=(0, self._px(12)))
+        left_panel.pack_propagate(False)
+        right_panel = RoundedPanel(content, padding=self._px(18), radius=self._px(10))
+        right = right_panel.content
+        right_panel.pack(side="left", fill="both", expand=True)
 
         ttk.Label(left, text="2  匹配专辑资料", style="Title.Card.TLabel").pack(anchor="w", pady=(0, 12))
         ttk.Label(left, text="专辑名称", style="Card.TLabel").pack(anchor="w")
@@ -319,9 +353,11 @@ class DiscTagApp:
         self.metadata_source_combo.bind("<<ComboboxSelected>>", self._metadata_source_changed)
         self.token_header = ttk.Frame(left, style="Card.TFrame")
         ttk.Label(self.token_header, text="Discogs 令牌", style="Card.TLabel").pack(side="left")
-        token_link = ttk.Label(self.token_header, text="申请令牌", foreground=ACCENT, cursor="hand2")
+        token_link = ttk.Label(self.token_header, text="申请令牌", style="Card.TLabel", foreground=ACCENT, cursor="hand2")
         token_link.pack(side="right")
         token_link.bind("<Button-1>", lambda _event: webbrowser.open("https://www.discogs.com/settings/developers", new=2))
+        token_link.bind("<Enter>", lambda _event: token_link.configure(font=(self.ui_font, 10, "underline")))
+        token_link.bind("<Leave>", lambda _event: token_link.configure(font=(self.ui_font, 10)))
         self.discogs_token_entry = ttk.Entry(left, textvariable=self.discogs_token_var, show="●")
         self.region_label = ttk.Label(left, text="iTunes 区域", style="Card.TLabel")
         self.region_combo = ttk.Combobox(left, state="readonly", values=_region_labels())
@@ -330,17 +366,28 @@ class DiscTagApp:
 
         search_row = ttk.Frame(left, style="Card.TFrame")
         search_row.pack(fill="x", pady=(0, 8))
+        for column in range(3):
+            search_row.columnconfigure(column, weight=1, uniform="search-actions")
         self.search_button = ttk.Button(search_row, text="搜索 iTunes", style="Accent.TButton", command=self._search)
-        self.search_button.pack(side="left", fill="x", expand=True)
+        self.search_button.grid(row=0, column=0, sticky="ew", padx=4)
         self.manual_button = ttk.Button(search_row, text="手动模式", command=self._manual_mode)
-        self.manual_button.pack(side="left", padx=(8, 0))
-        self.clear_button = ttk.Button(search_row, text="清除", width=6, command=self._clear_album)
-        self.clear_button.pack(side="left", padx=(8, 0))
+        self.manual_button.grid(row=0, column=1, sticky="ew", padx=4)
+        self.clear_button = ttk.Button(search_row, text="清除", command=self._clear_album)
+        self.clear_button.grid(row=0, column=2, sticky="ew", padx=4)
         self._metadata_source_changed()
 
         ttk.Label(left, text="搜索结果 · 选择后自动载入曲目", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-        results_frame = ttk.Frame(left, style="Card.TFrame")
-        results_frame.pack(fill="both", expand=True)
+        results_panel = RoundedPanel(
+            left,
+            padding=self._px(3),
+            height=self._px(140),
+            radius=self._px(7),
+            inset=self._px(8),
+            outline="#DCE0EB",
+            parent_background=CARD,
+        )
+        results_frame = results_panel.content
+        results_panel.pack(fill="both", expand=True)
         columns = ("region", "album", "artist")
         self.results_tree = ttk.Treeview(results_frame, columns=columns, show="headings", selectmode="browse", height=3)
         self.results_tree.heading("region", text="地区")
@@ -405,18 +452,28 @@ class DiscTagApp:
         ttk.Button(track_tools, text="下移", width=6, command=lambda: self._move_source(1)).pack(side="left", padx=2)
         ttk.Button(track_tools, text="编辑曲目", width=9, command=self._edit_track).pack(side="left", padx=(2, 0))
 
-        tracks_frame = ttk.Frame(right, style="Card.TFrame")
-        tracks_frame.pack(fill="both", expand=True)
-        track_columns = ("number", "source", "title", "artist", "duration")
+        tracks_panel = RoundedPanel(
+            right,
+            padding=self._px(3),
+            radius=self._px(7),
+            inset=self._px(8),
+            outline="#DCE0EB",
+            parent_background=CARD,
+        )
+        tracks_frame = tracks_panel.content
+        tracks_panel.pack(fill="both", expand=True)
+        track_columns = ("preview", "number", "source", "title", "artist", "duration")
         self.tracks_tree = ttk.Treeview(tracks_frame, columns=track_columns, show="headings", selectmode="browse", height=5)
-        headings = {"number": "曲序", "source": "本地 WAV", "title": "写入的歌曲名", "artist": "歌手", "duration": "时长"}
+        headings = {"preview": "试听", "number": "曲序", "source": "本地 WAV", "title": "写入的歌曲名", "artist": "歌手", "duration": "时长"}
         for key, value in headings.items():
             self.tracks_tree.heading(key, text=value)
+        self.tracks_tree.column("preview", width=self._px(48), anchor="center", stretch=False)
         self.tracks_tree.column("number", width=self._px(48), anchor="center", stretch=False)
         self.tracks_tree.column("source", width=self._px(150))
         self.tracks_tree.column("title", width=self._px(190))
         self.tracks_tree.column("artist", width=self._px(125))
         self.tracks_tree.column("duration", width=self._px(58), anchor="center", stretch=False)
+        self.tracks_tree.tag_configure("playing", background="#EAE6FF", foreground=ACCENT_DARK)
         self.tracks_tree.tag_configure("manual", background="#F0EBFF", foreground=ACCENT_DARK)
         self.tracks_tree.tag_configure("auto-manual", background="#FFF0D9", foreground="#8B5100")
         self.tracks_tree.tag_configure("duration-warning", background="#FFF3DF")
@@ -424,10 +481,12 @@ class DiscTagApp:
         self.tracks_tree.configure(yscrollcommand=track_scroll.set)
         self.tracks_tree.pack(side="left", fill="both", expand=True)
         track_scroll.pack(side="right", fill="y")
+        self.tracks_tree.bind("<Button-1>", self._track_clicked)
         self.tracks_tree.bind("<Double-1>", lambda _event: self._edit_track())
 
-        output_card = ttk.Frame(body, style="Card.TFrame", padding=14)
-        output_card.pack(side="bottom", fill="x", pady=(12, 8))
+        output_panel = RoundedPanel(body, padding=14, radius=self._px(10), fit_height=True)
+        output_card = output_panel.content
+        output_panel.pack(side="bottom", fill="x", pady=(12, 8))
         output_row = ttk.Frame(output_card, style="Card.TFrame")
         output_row.pack(fill="x")
         ttk.Label(output_row, text="输出目录", style="Card.TLabel").pack(side="left", padx=(0, 8))
@@ -542,6 +601,7 @@ class DiscTagApp:
         if not files:
             messagebox.showwarning("没有 WAV 文件", "所选文件夹中没有找到 .wav 文件。", parent=self.root)
             return
+        self.preview.stop()
         self.sources = files
         self.album = None
         self.album_region = ""
@@ -773,7 +833,10 @@ class DiscTagApp:
                 tag = track.origin
             else:
                 tag = "duration-warning" if duration_mismatch else ""
-            self.tracks_tree.insert("", "end", iid=str(index), values=(number, source.name if source else "—", title, artist, duration), tags=(tag,) if tag else ())
+            is_playing = bool(source and self.preview.playing and self.preview.path == source)
+            tags = (["playing"] if is_playing else []) + ([tag] if tag else [])
+            preview_icon = "■" if is_playing else "▶"
+            self.tracks_tree.insert("", "end", iid=str(index), values=(preview_icon, number, source.name if source else "—", title, artist, duration), tags=tags)
         can_insert = bool(self.album and self.album.collection_id is not None and len(self.sources) > len(tracks))
         if can_insert:
             self.insert_button.pack(side="left", padx=2, before=self.up_button)
@@ -792,6 +855,42 @@ class DiscTagApp:
         else:
             warning = " · 橙行时长不同" if duration_warnings else ""
             self.match_var.set(f"{len(self.sources)} 首已对应 · 双击编辑 / 上下移动{warning}")
+
+    def _track_clicked(self, event) -> str | None:
+        if self.converting or self.tracks_tree.identify_region(event.x, event.y) != "cell":
+            return None
+        if self.tracks_tree.identify_column(event.x) != "#1":
+            return None
+        row = self.tracks_tree.identify_row(event.y)
+        if not row:
+            return None
+        self.tracks_tree.selection_set(row)
+        self._toggle_playback(int(row))
+        return "break"
+
+    def _toggle_playback(self, index: int) -> None:
+        if self.converting or not 0 <= index < len(self.sources):
+            return
+        try:
+            self.preview.toggle(self.sources[index])
+        except RuntimeError as exc:
+            messagebox.showerror("无法试听", str(exc), parent=self.root)
+
+    def _playback_changed(self, playing: bool, path: Path) -> None:
+        for iid in self.tracks_tree.get_children():
+            index = int(iid)
+            source = self.sources[index] if index < len(self.sources) else None
+            is_playing = bool(playing and source == path)
+            values = list(self.tracks_tree.item(iid, "values"))
+            values[0] = "■" if is_playing else "▶"
+            tags = [tag for tag in self.tracks_tree.item(iid, "tags") if tag != "playing"]
+            if is_playing:
+                tags.insert(0, "playing")
+            self.tracks_tree.item(iid, values=values, tags=tags)
+        if playing:
+            self.status_var.set(f"正在试听：{path.name}")
+        elif self.status_var.get().startswith("正在试听"):
+            self.status_var.set("试听已停止")
 
     def _move_source(self, offset: int) -> None:
         selection = self.tracks_tree.selection()
@@ -1144,6 +1243,7 @@ class DiscTagApp:
         cover = self.cover_data
         output_format = self.format_var.get()
         quality = self.quality_var.get()
+        self.preview.stop()
         self.converting = True
         self.convert_button.configure(state="disabled")
         self.search_button.configure(state="disabled")
@@ -1196,15 +1296,80 @@ class DiscTagApp:
         def done(info):
             if not info:
                 return
+            self.latest_update = info
             self.latest_release_url = info.url
             if not self.update_dot.winfo_ismapped():
                 self.update_dot.pack(side="left", padx=(self._px(4), 0))
-            self.status_var.set(f"发现新版本 {info.version} · 点击右下角 GitHub 或圆点打开发布页")
+            action = "点击圆点自动更新" if info.download_url else "点击右下角打开发布页"
+            self.status_var.set(f"发现新版本 {info.version} · {action}")
 
         self._run_async(work, done, lambda _error: None)
 
     def _open_latest_release(self) -> None:
-        webbrowser.open(self.latest_release_url, new=2)
+        if sys.platform == "win32" and self.latest_update and self.latest_update.download_url:
+            self._start_update_download()
+        else:
+            webbrowser.open(self.latest_release_url, new=2)
+
+    def _start_update_download(self) -> None:
+        if self.updating:
+            return
+        if self.converting:
+            messagebox.showwarning("正在处理专辑", "请等待当前专辑处理完成后再更新。", parent=self.root)
+            return
+        info = self.latest_update
+        confirmed = messagebox.askyesno(
+            "自动更新",
+            f"发现新版本 {info.version}，是否下载并自动安装？\n\n{info.installer_name}",
+            parent=self.root,
+        )
+        if not confirmed:
+            return
+        self.updating = True
+        self.convert_button.configure(state="disabled")
+        self.search_button.configure(state="disabled")
+        self.clear_button.configure(state="disabled")
+        self.progress_var.set(0)
+        self.progress.configure(maximum=info.size or 1)
+        destination = Path(tempfile.gettempdir()) / "DiscTag" / "updates" / info.installer_name
+
+        def work():
+            def progress(downloaded: int, total: int):
+                self.root.after(0, lambda: self._update_download_progress(downloaded, total))
+
+            return download_update(info, destination, progress)
+
+        self.status_var.set("正在下载更新…")
+        self._run_async(work, self._install_update, self._update_failed)
+
+    def _update_download_progress(self, downloaded: int, total: int) -> None:
+        self.progress_var.set(downloaded)
+        if total:
+            self.status_var.set(f"正在下载更新 · {downloaded / total:.0%}")
+        else:
+            self.status_var.set(f"已下载 {downloaded / 1024 / 1024:.1f} MB")
+
+    def _install_update(self, installer: Path) -> None:
+        self.updating = False
+        self.status_var.set("更新包校验完成，正在安装…")
+        self._save_settings()
+        try:
+            subprocess.Popen(
+                [str(installer), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"],
+                cwd=installer.parent,
+            )
+        except OSError as exc:
+            self._update_failed(exc)
+            return
+        self.root.destroy()
+
+    def _update_failed(self, error: Exception) -> None:
+        self.updating = False
+        self.convert_button.configure(state="normal")
+        self.search_button.configure(state="normal")
+        self.clear_button.configure(state="normal")
+        self.status_var.set(f"自动更新失败：{error}")
+        messagebox.showerror("自动更新失败", f"{error}\n\n也可以点击右下角 GitHub 手动下载。", parent=self.root)
 
     def _run_async(self, work, done, failed) -> None:
         def runner():
@@ -1277,6 +1442,7 @@ class DiscTagApp:
     def _close(self) -> None:
         if self.converting and not messagebox.askyesno("处理仍在进行", "现在退出会中断未完成的处理，确定退出吗？", parent=self.root):
             return
+        self.preview.stop()
         self._close_easter_egg()
         self._save_settings()
         self.root.destroy()
