@@ -87,7 +87,7 @@ if sys.platform == "darwin":
         bundle_identifier="app.disctag.desktop",
         info_plist={
             "CFBundleDisplayName": "DiscTag",
-            "CFBundleShortVersionString": "1.6.2",
+            "CFBundleShortVersionString": "1.7.0",
             "NSHighResolutionCapable": True,
         },
     )

@@ -4,13 +4,15 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v1.6.2**
+当前版本：**v1.7.0**
 
 ## 功能
 
 - WAV 保留原音频并写入 RIFF ID3 标签，或转换为 FLAC、MP3。
 - 查询 iTunes 美区、日区、中国香港以及中国台湾曲库，并通过 Apple Music 公开网页检索中国大陆内容，支持全部地区合并检索。
 - 支持 Discogs 实体唱片检索，补充独立发行、再版、地区版本、目录号和高清封面。
+- 中文名增强：通过 MusicBrainz / Wikidata 解析英文或拼音艺人与专辑名，支持拼音匹配和简繁转换。
+- 支持网易云音乐中文专辑、曲目时长和封面检索。
 - 自动下载专辑资料与封面，也可使用本地封面。
 - 一键清除专辑资料并保留已导入 WAV，过期搜索不会覆盖清除后的状态。
 - 启动时后台检查 GitHub 最新 Release，发现更新时显示圆点，点击版本号即可打开发布页。
@@ -29,6 +31,15 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 Windows 用户请完整解压 `DiscTag-Windows-x64.zip`，然后运行 `DiscTag.exe`，保留旁边的 `_internal` 目录。
 
 macOS 构建目前使用 ad-hoc 签名，未经过 Apple Developer ID 签名和公证。首次打开时，macOS 可能显示安全提示。
+
+## 中文名增强与网易云
+
+在曲库来源中选择“网易云音乐（中文）”时，会先尝试通过 MusicBrainz / Wikidata 解析中文正式名称，再查询网易云。其他曲库也可以单独开启“中文名增强（英文 / 拼音）”，把解析结果用于当前搜索。
+
+- `Common Jasmin Orange + Jay Chou` 可以解析为 `周杰伦《七里香》`。
+- 支持拼音匹配、中文别名、简繁转换和 30 天查询缓存。
+- 中文解析与缓存逻辑整合自 `music-cn-tagger`，不依赖原项目目录或 Flask 服务。
+- 网易云接口属于非官方公开接口，可用性可能随服务调整。
 
 ## Discogs 设置
 
@@ -80,6 +91,8 @@ Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中�
 美区、日区、中国香港和中国台湾使用公开的 iTunes Search API；中国大陆使用 Apple Music 公开网页中的结构化数据，不需要 Apple 账号。网页检索不是官方免密 API，页面结构变化时可能需要更新解析逻辑。官方 Apple Music API 需要 Apple Developer Program 开发者令牌，本项目未使用该凭证。
 
 Discogs 使用官方 REST API，实体版本、曲目、厂牌、国家和封面由用户个人令牌鉴权获取。请求频率受限，请遵循 Discogs 的 API 条款和署名要求。
+
+中文名解析使用 MusicBrainz 与 Wikidata，中文专辑补充使用网易云公开接口。查询结果按 DiscTag 配置目录缓存 30 天，网易云数据与封面不要求账号或令牌。
 
 不同地区的数字发行曲目可能不同，最终标签请以实体 CD 曲目表为准。
 

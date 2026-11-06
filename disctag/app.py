@@ -26,8 +26,10 @@ from .audio import (
     output_path,
     wav_duration,
 )
+from .chinese import resolve_chinese_query
 from .discogs import DiscogsClient
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
+from .netease import NetEaseClient
 from .matching import align_tracks_by_duration
 from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
@@ -65,6 +67,7 @@ class DiscTagApp:
         self.settings = self._load_settings()
         self.client = ITunesClient()
         self.discogs_client = DiscogsClient()
+        self.netease_client = NetEaseClient()
         self.sources: list[Path] = []
         self.results: list[AlbumSummary] = []
         self.album: AlbumMetadata | None = None
@@ -92,6 +95,18 @@ class DiscTagApp:
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
         self.region_var = tk.StringVar(value=self.settings.get("region", "US"))
         self.metadata_source_var = tk.StringVar(value=self.settings.get("metadata_source", "iTunes / Apple Music"))
+        if self.metadata_source_var.get() == "网易云音乐（中文）":
+            self.metadata_source_var.set("iTunes / Apple Music")
+        self.cn_enhance_var = tk.BooleanVar(value=self.settings.get("cn_enhance", False))
+        self.last_resolution_message = ""
+        self.cn_album = None
+        self.cn_cover_data = None
+        self.cn_cover_image = None
+        self.cn_album_var = tk.StringVar()
+        self.cn_artist_var = tk.StringVar()
+        self.cn_simplify_var = tk.BooleanVar(value=self.settings.get("cn_simplify", True))
+        self.cn_detail_var = tk.StringVar(value="搜索并选择一张中文专辑")
+        self.cn_request_id = 0
         self.discogs_token_var = tk.StringVar(value=self._read_discogs_token())
         saved_cover_size = self.settings.get("cover_size", 1200)
         if saved_cover_size not in COVER_SIZES:
@@ -169,13 +184,29 @@ class DiscTagApp:
             "TCombobox",
             fieldbackground="#F8F9FC",
             foreground=INK,
+            background="#F8F9FC",
             bordercolor="#DCE0EB",
             lightcolor="#DCE0EB",
             darkcolor="#DCE0EB",
-            arrowcolor=MUTED,
+            arrowcolor=ACCENT,
+            arrowsize=self._px(13),
+            relief="flat",
             padding=self._px(8),
         )
-        style.map("TCombobox", bordercolor=[("focus", ACCENT)], fieldbackground=[("readonly", "#F8F9FC")])
+        style.map(
+            "TCombobox",
+            bordercolor=[("focus", ACCENT)],
+            fieldbackground=[("readonly", "#F8F9FC")],
+            background=[("readonly", "#F8F9FC"), ("active", "#EEF0F6")],
+            arrowcolor=[("readonly", ACCENT), ("active", ACCENT_DARK)],
+            selectbackground=[("readonly", "#F8F9FC")],
+            selectforeground=[("readonly", INK)],
+        )
+        self.root.option_add("*TCombobox*Listbox.background", CARD)
+        self.root.option_add("*TCombobox*Listbox.foreground", INK)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#EAE6FF")
+        self.root.option_add("*TCombobox*Listbox.selectForeground", INK)
+        self.root.option_add("*TCombobox*Listbox.font", (self.ui_font, 10))
         style.configure(
             "TButton",
             font=(self.ui_font, 10),
@@ -229,16 +260,36 @@ class DiscTagApp:
         )
         style.map("Treeview", background=[("selected", "#EAE6FF")], foreground=[("selected", INK)])
         style.map("Treeview.Heading", background=[("active", "#F5F6FA")])
+        for selector_style in ("TRadiobutton", "TCheckbutton"):
+            style.configure(
+                selector_style,
+                background=CARD,
+                foreground=INK,
+                font=(self.ui_font, 10),
+                indicatorcolor="#F8F9FC",
+                selectcolor=ACCENT,
+                bordercolor="#C8CDDB",
+                focusthickness=0,
+            )
+            style.map(
+                selector_style,
+                indicatorcolor=[("active", "#EAE6FF"), ("selected", ACCENT)],
+                selectcolor=[("selected", ACCENT), ("active", ACCENT_DARK)],
+            )
+        style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
         style.configure(
-            "TRadiobutton",
-            background=CARD,
-            foreground=INK,
-            font=(self.ui_font, 10),
-            indicatorcolor="#F8F9FC",
-            bordercolor="#C8CDDB",
-            focusthickness=0,
+            "TNotebook.Tab",
+            background="#E9ECF4",
+            foreground=MUTED,
+            font=(self.ui_semibold, 11),
+            padding=(self._px(22), self._px(10)),
+            borderwidth=0,
         )
-        style.map("TRadiobutton", indicatorcolor=[("active", "#EAE6FF"), ("selected", ACCENT)])
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", CARD), ("active", "#E0E4F0")],
+            foreground=[("selected", ACCENT_DARK), ("active", INK)],
+        )
         style.configure(
             "Horizontal.TProgressbar",
             troughcolor="#E8EAF2",
@@ -286,7 +337,13 @@ class DiscTagApp:
         tk.Label(titles, text="让每一张 CD，都有完整而漂亮的音乐资料", bg="#1D1C31", fg="#BAB8D0", font=(self.cjk_font, 10)).pack(anchor="w")
         tk.Label(header_content, text="WAV  →  WAV / FLAC / MP3", bg="#1D1C31", fg="#BDB5FF", font=(self.ui_semibold, 12)).pack(side="right", pady=self._px(14))
 
-        body = ttk.Frame(self.root, padding=(self._px(22), self._px(18), self._px(22), self._px(12)))
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+        self.main_tab = ttk.Frame(self.notebook)
+        self.cn_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.main_tab, text="CD 整理")
+        self.notebook.add(self.cn_tab, text="中文增强")
+        body = ttk.Frame(self.main_tab, padding=(self._px(22), self._px(18), self._px(22), self._px(12)))
         body.pack(fill="both", expand=True)
         source_card = ttk.Frame(body, style="Card.TFrame", padding=self._px(16))
         source_card.pack(fill="x", pady=(0, self._px(12)))
@@ -327,9 +384,15 @@ class DiscTagApp:
         self.region_combo = ttk.Combobox(left, state="readonly", values=_region_labels())
         self.region_combo.set(_region_label(self.region_var.get()))
         self.region_combo.bind("<<ComboboxSelected>>", self._region_changed)
+        self.cn_enhance_check = ttk.Checkbutton(
+            left,
+            text="中文名增强（英文 / 拼音）",
+            variable=self.cn_enhance_var,
+        )
 
         search_row = ttk.Frame(left, style="Card.TFrame")
         search_row.pack(fill="x", pady=(0, 8))
+        self.cn_enhance_check.pack(anchor="w", before=search_row)
         self.search_button = ttk.Button(search_row, text="搜索 iTunes", style="Accent.TButton", command=self._search)
         self.search_button.pack(side="left", fill="x", expand=True)
         self.manual_button = ttk.Button(search_row, text="手动模式", command=self._manual_mode)
@@ -475,6 +538,187 @@ class DiscTagApp:
         )
         self.github_link.bind("<Button-1>", lambda _event: self._open_latest_release())
         self.update_dot.bind("<Button-1>", lambda _event: self._open_latest_release())
+        self._build_chinese_tab()
+
+    def _build_chinese_tab(self) -> None:
+        container = ttk.Frame(self.cn_tab, padding=(self._px(26), self._px(18), self._px(26), self._px(16)))
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="中文名增强", style="Title.Card.TLabel").pack(anchor="w")
+        ttk.Label(
+            container,
+            text="英文 / 拼音 → 中文正式名称 → 网易云专辑资料。确认后再用于 CD 整理。",
+            foreground=MUTED,
+        ).pack(anchor="w", pady=(4, 14))
+        form = ttk.Frame(container, style="Card.TFrame", padding=self._px(16))
+        form.pack(fill="x", pady=(0, self._px(12)))
+        ttk.Label(form, text="专辑名称", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        cn_album_entry = ttk.Entry(form, textvariable=self.cn_album_var)
+        cn_album_entry.grid(row=1, column=0, sticky="ew", padx=(0, self._px(12)))
+        ttk.Label(form, text="歌手名称", style="Card.TLabel").grid(row=0, column=1, sticky="w")
+        cn_artist_entry = ttk.Entry(form, textvariable=self.cn_artist_var)
+        cn_artist_entry.grid(row=1, column=1, sticky="ew")
+        form.columnconfigure(0, weight=1)
+        form.columnconfigure(1, weight=1)
+        ttk.Checkbutton(form, text="转换为简体中文", variable=self.cn_simplify_var).grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self.cn_search_button = ttk.Button(form, text="解析并搜索", style="Accent.TButton", command=self._cn_search)
+        self.cn_search_button.grid(row=2, column=1, sticky="e", pady=(10, 0))
+        self.cn_clear_button = ttk.Button(form, text="清空", command=self._clear_cn)
+        self.cn_clear_button.grid(row=2, column=2, sticky="e", padx=(self._px(8), 0), pady=(10, 0))
+        form.columnconfigure(2, weight=0)
+        cn_album_entry.bind("<Return>", lambda _event: self._cn_search())
+        cn_artist_entry.bind("<Return>", lambda _event: self._cn_search())
+
+        content = ttk.Frame(container)
+        content.pack(fill="both", expand=True)
+        results_card = ttk.Frame(content, style="Card.TFrame", padding=self._px(14))
+        results_card.pack(side="left", fill="both", expand=True, padx=(0, self._px(12)))
+        ttk.Label(results_card, text="候选专辑", style="Title.Card.TLabel").pack(anchor="w", pady=(0, 10))
+        self.cn_results_tree = ttk.Treeview(
+            results_card,
+            columns=("album", "artist", "tracks"),
+            show="headings",
+            selectmode="browse",
+            height=8,
+        )
+        self.cn_results_tree.heading("album", text="专辑")
+        self.cn_results_tree.heading("artist", text="歌手")
+        self.cn_results_tree.heading("tracks", text="曲目数")
+        self.cn_results_tree.column("album", width=self._px(280))
+        self.cn_results_tree.column("artist", width=self._px(160))
+        self.cn_results_tree.column("tracks", width=self._px(70), anchor="center", stretch=False)
+        scroll = ttk.Scrollbar(results_card, orient="vertical", command=self.cn_results_tree.yview)
+        self.cn_results_tree.configure(yscrollcommand=scroll.set)
+        self.cn_results_tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.cn_results_tree.bind("<<TreeviewSelect>>", self._cn_album_selected)
+
+        details_card = ttk.Frame(content, style="Card.TFrame", padding=self._px(18), width=self._px(400))
+        details_card.pack(side="left", fill="y")
+        details_card.pack_propagate(False)
+        self.cn_cover_label = tk.Label(details_card, text="专辑封面", width=20, height=8, bg="#F0F1F6", fg=MUTED)
+        self.cn_cover_label.pack(anchor="center", pady=(0, self._px(14)))
+        ttk.Label(details_card, textvariable=self.cn_detail_var, style="Muted.Card.TLabel", wraplength=self._px(340), justify="center").pack(fill="x")
+        self.cn_use_button = ttk.Button(details_card, text="用于 CD 整理", style="Convert.TButton", command=self._use_cn_album, state="disabled")
+        self.cn_use_button.pack(pady=(self._px(18), 0))
+
+    def _cn_search(self) -> None:
+        if not self.cn_album_var.get().strip():
+            messagebox.showwarning("缺少专辑名称", "请先输入专辑名称。", parent=self.root)
+            return
+        self.cn_request_id += 1
+        request_id = self.cn_request_id
+        self.cn_search_button.configure(state="disabled")
+        self.cn_use_button.configure(state="disabled")
+        self.cn_results_tree.delete(*self.cn_results_tree.get_children())
+        self.cn_detail_var.set("正在解析中文名称并检索…")
+        self.status_var.set("正在解析中文名称并查询网易云…")
+
+        def work():
+            resolved = resolve_chinese_query(self.cn_album_var.get(), self.cn_artist_var.get(), self.cn_simplify_var.get())
+            results = self.netease_client.search_albums(resolved.album, resolved.artist)
+            return resolved, results
+
+        def done(result):
+            if request_id != self.cn_request_id:
+                return
+            resolved, results = result
+            self.cn_search_button.configure(state="normal")
+            self.cn_results = results
+            for index, entry in enumerate(results):
+                self.cn_results_tree.insert("", "end", iid=str(index), values=(entry.title, entry.artist, entry.track_count))
+            self.cn_detail_var.set(resolved.message or "搜索完成，请选择候选专辑。")
+            self.status_var.set(f"中文曲库找到 {len(results)} 个专辑版本" if results else "没有找到专辑，请调整关键词")
+            if results:
+                self.cn_results_tree.selection_set("0")
+                self.cn_results_tree.focus("0")
+
+        self._run_async(work, done, lambda error: self._cn_failed(error, request_id))
+
+    def _cn_failed(self, error: Exception, request_id: int) -> None:
+        if request_id != self.cn_request_id:
+            return
+        self.cn_search_button.configure(state="normal")
+        self.cn_detail_var.set("检索失败，请检查网络或稍后再试。")
+        self.status_var.set(f"中文增强查询失败：{error}")
+
+    def _cn_album_selected(self, _event=None) -> None:
+        selection = self.cn_results_tree.selection()
+        if not selection:
+            return
+        summary = self.cn_results[int(selection[0])]
+        self.cn_request_id += 1
+        request_id = self.cn_request_id
+        self.cn_use_button.configure(state="disabled")
+        self.cn_detail_var.set(f"正在载入《{summary.title}》…")
+
+        def work():
+            album = self.netease_client.get_album(summary.collection_id)
+            cover_error = None
+            try:
+                cover = self.netease_client.download_cover(album.artwork_url, self._cover_size_value())
+            except Exception as exc:
+                cover = None
+                cover_error = str(exc)
+            return album, cover, cover_error
+
+        def done(result):
+            if request_id != self.cn_request_id:
+                return
+            self.cn_album, self.cn_cover_data, cover_error = result
+            self.cn_detail_var.set(
+                f"{self.cn_album.artist}《{self.cn_album.title}》\n"
+                f"{len(self.cn_album.tracks)} 首 · {self.cn_album.genre or '未分类'} · {self.cn_album.release_date or '日期未知'}"
+            )
+            if self.cn_cover_data:
+                image = Image.open(io.BytesIO(self.cn_cover_data)).convert("RGB")
+                size = self._px(180)
+                image = ImageOps.contain(image, (size, size), Image.Resampling.LANCZOS)
+                self.cn_cover_image = ImageTk.PhotoImage(image)
+                self.cn_cover_label.configure(image=self.cn_cover_image, text="", width=size, height=size)
+            else:
+                self.cn_cover_image = None
+                self.cn_cover_label.configure(image="", text="专辑封面")
+            self.cn_use_button.configure(state="normal")
+            self.status_var.set(f"已选择《{self.cn_album.title}》，可用于 CD 整理" if not cover_error else f"专辑已选择；{cover_error}")
+
+        self._run_async(work, done, lambda error: self._cn_failed(error, request_id))
+
+    def _use_cn_album(self) -> None:
+        if not self.cn_album:
+            return
+        self.album = self.cn_album
+        self.cover_data = self.cn_cover_data
+        self.cover_is_local = False
+        self.album_var.set(self.album.title)
+        self.artist_var.set(self.album.artist)
+        self.album_artist_var.set(self.album.album_artist)
+        self.date_var.set(self.album.release_date)
+        self.genre_var.set(self.album.genre)
+        self.album_region = "NE"
+        self.metadata_dirty = False
+        self._update_album_info()
+        self._refresh_tracks()
+        if self.cover_data:
+            self._show_cover(self.cover_data)
+        else:
+            self._clear_cover()
+        self.notebook.select(self.main_tab)
+        self.status_var.set(f"已从中文增强载入《{self.album.title}》，请核对曲目后处理")
+
+    def _clear_cn(self) -> None:
+        self.cn_request_id += 1
+        self.cn_album_var.set("")
+        self.cn_artist_var.set("")
+        self.cn_results_tree.delete(*self.cn_results_tree.get_children())
+        self.cn_results = []
+        self.cn_album = None
+        self.cn_cover_data = None
+        self.cn_cover_image = None
+        self.cn_cover_label.configure(image="", text="专辑封面")
+        self.cn_detail_var.set("搜索并选择一张中文专辑")
+        self.cn_use_button.configure(state="disabled")
+        self.cn_search_button.configure(state="normal")
+        self.status_var.set("中文增强已清空")
 
     def _icon_clicked(self, _event=None) -> None:
         if self.easter_egg_dialog and self.easter_egg_dialog.winfo_exists():
@@ -591,7 +835,15 @@ class DiscTagApp:
         self.search_request_id += 1
         request_id = self.search_request_id
         self.search_button.configure(state="disabled")
-        if source == "Discogs":
+        self.last_resolution_message = ""
+        if source == "网易云音乐（中文）" or self.cn_enhance_var.get():
+            resolved = resolve_chinese_query(album, artist)
+            album = resolved.album
+            artist = resolved.artist
+            self.last_resolution_message = resolved.message
+        if source == "网易云音乐（中文）":
+            self.status_var.set("正在查询网易云音乐中文曲库…")
+        elif source == "Discogs":
             self.status_var.set("正在查询 Discogs 实体唱片曲库…")
         elif region == "ALL":
             self.status_var.set("正在并行查询全部地区…")
@@ -601,6 +853,8 @@ class DiscTagApp:
             self.status_var.set(f"正在查询 {ITUNES_REGIONS[region]} iTunes…")
 
         def work():
+            if source == "网易云音乐（中文）":
+                return self.netease_client.search_albums(album, artist)
             if source == "Discogs":
                 return self.discogs_client.search_albums(album, artist, token)
             return self.client.search_albums(album, artist, region)
@@ -613,12 +867,15 @@ class DiscTagApp:
             self.results_tree.delete(*self.results_tree.get_children())
             for index, entry in enumerate(results):
                 self.results_tree.insert("", "end", iid=str(index), values=(entry.country, entry.title, entry.artist))
-            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source != "Discogs" and self.client.last_warnings else ""
-            self.status_var.set(f"找到 {len(results)} 个专辑版本{warning}" if results else "没有找到专辑，请更换关键词或地区")
+            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source == "iTunes / Apple Music" and self.client.last_warnings else ""
+            result_message = f"找到 {len(results)} 个专辑版本{warning}" if results else "没有找到专辑，请更换关键词或地区"
+            if self.last_resolution_message:
+                result_message += f" · {self.last_resolution_message}"
+            self.status_var.set(result_message)
             if results:
                 self.results_tree.selection_set("0")
                 self.results_tree.focus("0")
-            elif source != "Discogs" and self.client.last_warnings:
+            elif source == "iTunes / Apple Music" and self.client.last_warnings:
                 messagebox.showwarning("地区查询失败", "\n".join(self.client.last_warnings), parent=self.root)
 
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
@@ -655,6 +912,14 @@ class DiscTagApp:
                 cover_error = None
                 try:
                     cover = self.discogs_client.download_cover(album.artwork_url, cover_size, token)
+                except Exception as exc:
+                    cover = None
+                    cover_error = str(exc)
+            elif summary.source == "netease":
+                album = self.netease_client.get_album(summary.collection_id)
+                cover_error = None
+                try:
+                    cover = self.netease_client.download_cover(album.artwork_url, cover_size)
                 except Exception as exc:
                     cover = None
                     cover_error = str(exc)
@@ -1033,6 +1298,8 @@ class DiscTagApp:
         def work():
             if self.album.source == "discogs":
                 return self.discogs_client.download_cover(artwork_url, size, self.discogs_token_var.get().strip())
+            if self.album.source == "netease":
+                return self.netease_client.download_cover(artwork_url, size)
             return self.client.download_cover(artwork_url, size)
 
         def done(data: bytes):
@@ -1226,18 +1493,27 @@ class DiscTagApp:
                 self.status_var.set("就绪")
 
     def _metadata_source_changed(self, _event=None) -> None:
-        is_discogs = self.metadata_source_var.get() == "Discogs"
-        if is_discogs:
+        source = self.metadata_source_var.get()
+        if source == "Discogs":
             self.region_label.pack_forget()
             self.region_combo.pack_forget()
             self.token_header.pack(fill="x", before=self.search_button.master)
             self.discogs_token_entry.pack(fill="x", pady=(4, 6), before=self.search_button.master)
+            self.cn_enhance_check.pack(anchor="w", before=self.search_button.master)
             self.search_button.configure(text="搜索 Discogs")
+        elif source == "网易云音乐（中文）":
+            self.region_label.pack_forget()
+            self.region_combo.pack_forget()
+            self.token_header.pack_forget()
+            self.discogs_token_entry.pack_forget()
+            self.cn_enhance_check.pack_forget()
+            self.search_button.configure(text="搜索网易云")
         else:
             self.token_header.pack_forget()
             self.discogs_token_entry.pack_forget()
             self.region_label.pack(anchor="w", before=self.search_button.master)
             self.region_combo.pack(fill="x", pady=(4, 6), before=self.search_button.master)
+            self.cn_enhance_check.pack(anchor="w", before=self.search_button.master)
             self.search_button.configure(text="搜索 iTunes")
         if _event is not None:
             self.search_request_id += 1
@@ -1295,6 +1571,8 @@ class DiscTagApp:
             "quality": self.quality_var.get(),
             "region": self.region_var.get(),
             "metadata_source": self.metadata_source_var.get(),
+            "cn_enhance": self.cn_enhance_var.get(),
+            "cn_simplify": self.cn_simplify_var.get(),
             "cover_size": self._cover_size_value(),
         }
         try:

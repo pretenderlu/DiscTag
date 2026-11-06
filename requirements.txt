@@ -3,3 +3,5 @@ mutagen>=1.47,<2
 Pillow>=10,<13
 PyInstaller>=6,<7
 keyring>=25,<26
+zhconv>=1.4.3,<2
+pypinyin>=0.55,<1
