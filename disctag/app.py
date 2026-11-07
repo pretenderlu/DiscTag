@@ -593,6 +593,8 @@ class DiscTagApp:
         self.easter_egg_dialog = None
 
     def _import_wav(self) -> None:
+        if self.converting or self.updating:
+            return
         selected = filedialog.askdirectory(title="选择包含 WAV 音轨的文件夹")
         if not selected:
             return
@@ -602,6 +604,7 @@ class DiscTagApp:
             messagebox.showwarning("没有 WAV 文件", "所选文件夹中没有找到 .wav 文件。", parent=self.root)
             return
         self.preview.stop()
+        self._invalidate_metadata_requests()
         self.sources = files
         self.album = None
         self.album_region = ""
@@ -613,12 +616,16 @@ class DiscTagApp:
         self._refresh_tracks()
         self.status_var.set(f"已导入 {len(files)} 个 WAV 文件")
 
-    def _clear_album(self) -> None:
-        if self.converting:
-            return
+    def _invalidate_metadata_requests(self) -> None:
         self.search_request_id += 1
         self.album_request_id += 1
         self.cover_request_id += 1
+        self.search_button.configure(state="disabled" if self.converting or self.updating else "normal")
+
+    def _clear_album(self) -> None:
+        if self.converting or self.updating:
+            return
+        self._invalidate_metadata_requests()
         for variable in (self.album_var, self.artist_var, self.album_artist_var, self.date_var, self.genre_var):
             variable.set("")
         self.results = []
@@ -629,12 +636,13 @@ class DiscTagApp:
         self.cover_data = None
         self._clear_cover()
         self.album_info_var.set("搜索并选择专辑，或进入手动模式")
-        self.search_button.configure(state="normal")
         self._refresh_tracks()
         self.status_var.set("已清空专辑资料，可输入新专辑；已导入的 WAV 保持不变")
         self.album_entry.focus_set()
 
     def _search(self) -> None:
+        if self.converting or self.updating:
+            return
         if not self.album_var.get().strip():
             messagebox.showwarning("缺少专辑名称", "请先输入专辑名称。", parent=self.root)
             return
@@ -648,7 +656,7 @@ class DiscTagApp:
             self.discogs_token_entry.focus_set()
             return
         self._save_discogs_token()
-        self.search_request_id += 1
+        self._invalidate_metadata_requests()
         request_id = self.search_request_id
         self.search_button.configure(state="disabled")
         if source == "Discogs":
@@ -691,6 +699,8 @@ class DiscTagApp:
         messagebox.showerror("搜索失败", str(error), parent=self.root)
 
     def _album_selected(self, _event=None) -> None:
+        if self.converting or self.updating:
+            return
         selection = self.results_tree.selection()
         if not selection:
             return
@@ -703,30 +713,27 @@ class DiscTagApp:
             )
             if not replace:
                 return
+        token = self.discogs_token_var.get().strip()
         cover_size = self._cover_size_value()
         self.album_request_id += 1
         request_id = self.album_request_id
+        self.cover_request_id += 1
+        cover_request_id = self.cover_request_id
         self.status_var.set(f"正在载入 {summary.title}（{summary.country}）…")
 
         def work():
             if summary.source == "discogs":
-                token = self.discogs_token_var.get().strip()
                 album = self.discogs_client.get_album(summary.collection_id, token)
-                cover_error = None
-                try:
-                    cover = self.discogs_client.download_cover(album.artwork_url, cover_size, token)
-                except Exception as exc:
-                    cover = None
-                    cover_error = str(exc)
             else:
                 album = self.client.get_album(summary.collection_id, summary.country)
-                cover_error = None
-                try:
+            try:
+                if summary.source == "discogs":
+                    cover = self.discogs_client.download_cover(album.artwork_url, cover_size, token)
+                else:
                     cover = self.client.download_cover(album.artwork_url, cover_size)
-                except Exception as exc:
-                    cover = None
-                    cover_error = str(exc)
-            return album, cover, cover_error
+                return album, cover, None
+            except Exception as exc:
+                return album, None, str(exc)
 
         def done(result):
             if request_id != self.album_request_id:
@@ -735,8 +742,6 @@ class DiscTagApp:
             self.album = album
             self.album_region = summary.country
             self.metadata_dirty = False
-            self.cover_data = cover
-            self.cover_is_local = False
             self.album_var.set(album.title)
             self.artist_var.set(album.artist)
             self.album_artist_var.set(album.album_artist)
@@ -746,22 +751,36 @@ class DiscTagApp:
             alignment_message = self._smart_match_missing()
             if not alignment_message:
                 self._refresh_tracks()
-            if cover:
-                self._show_cover(cover)
-                self.status_var.set(f"已载入《{album.title}》，请核对曲目对应关系")
-            else:
+            self.status_var.set(f"已载入《{album.title}》，请核对曲目对应关系")
+            if cover_request_id == self.cover_request_id:
+                self.cover_data = cover
+                self.cover_is_local = False
+                if cover:
+                    self._show_cover(cover)
+                else:
+                    self._clear_cover()
+                    self.status_var.set(f"专辑已载入；{cover_error}，可选择本地封面")
+            elif not self.cover_is_local:
+                self.cover_data = None
                 self._clear_cover()
-                self.status_var.set(f"专辑已载入；{cover_error}，可选择本地封面")
+                if album.artwork_url:
+                    self._cover_size_changed()
+                else:
+                    self.status_var.set("专辑已载入，没有在线封面，可选择本地封面")
             if alignment_message:
                 self.status_var.set(alignment_message)
 
-        self._run_async(work, done, self._album_load_failed)
+        self._run_async(work, done, lambda error: self._album_load_failed(error, request_id))
 
-    def _album_load_failed(self, error: Exception) -> None:
+    def _album_load_failed(self, error: Exception, request_id: int) -> None:
+        if request_id != self.album_request_id:
+            return
         self.status_var.set("专辑资料载入失败")
         messagebox.showerror("载入失败", str(error), parent=self.root)
 
     def _manual_mode(self) -> None:
+        if self.converting or self.updating:
+            return
         if not self.sources:
             messagebox.showwarning("请先导入 WAV", "手动模式需要本地 WAV 文件来建立曲目列表。", parent=self.root)
             return
@@ -772,6 +791,7 @@ class DiscTagApp:
             replace = messagebox.askyesno("进入手动模式", "这会覆盖当前的 iTunes 匹配和手动补曲，是否继续？", parent=self.root)
             if not replace:
                 return
+        self._invalidate_metadata_requests()
         artist = self.artist_var.get().strip() or self.album_artist_var.get().strip() or "未知歌手"
         tracks = [
             TrackMetadata(clean_track_title(path), artist, index, len(self.sources), origin="manual")
@@ -1126,16 +1146,18 @@ class DiscTagApp:
         if not self.album or not self.album.artwork_url or self.cover_is_local:
             self.status_var.set(f"封面上限已设为 {size}×{size}，将在下次在线下载时生效")
             return
-        artwork_url = self.album.artwork_url
+        album = self.album
+        artwork_url = album.artwork_url
+        token = self.discogs_token_var.get().strip()
         self.status_var.set(f"正在获取最高 {size}×{size} 的封面…")
 
         def work():
-            if self.album.source == "discogs":
-                return self.discogs_client.download_cover(artwork_url, size, self.discogs_token_var.get().strip())
+            if album.source == "discogs":
+                return self.discogs_client.download_cover(artwork_url, size, token)
             return self.client.download_cover(artwork_url, size)
 
         def done(data: bytes):
-            if request_id != self.cover_request_id:
+            if request_id != self.cover_request_id or self.album is not album:
                 return
             self.cover_data = data
             self.cover_is_local = False
@@ -1143,7 +1165,7 @@ class DiscTagApp:
             self.status_var.set(f"封面已更新 · {self.cover_info_var.get()}")
 
         def failed(error: Exception):
-            if request_id == self.cover_request_id:
+            if request_id == self.cover_request_id and self.album is album:
                 self.status_var.set(f"封面下载失败：{error}")
 
         self._run_async(work, done, failed)
@@ -1198,7 +1220,7 @@ class DiscTagApp:
             subprocess.Popen(["xdg-open", str(path)])
 
     def _convert(self) -> None:
-        if self.converting:
+        if self.converting or self.updating:
             return
         if not self.sources:
             messagebox.showwarning("缺少 WAV", "请先选择包含 WAV 音轨的文件夹。", parent=self.root)
@@ -1230,8 +1252,7 @@ class DiscTagApp:
         album.album_artist = self.album_artist_var.get().strip() or album.artist
         album.release_date = self.date_var.get().strip()
         album.genre = self.genre_var.get().strip()
-        for track in album.tracks:
-            track.track_count = len(album.tracks)
+        renumber_tracks(album.tracks)
         output_root = Path(self.output_var.get().strip()).expanduser()
         directory = output_directory(output_root, album)
         existing = [output_path(directory, track, self.format_var.get()) for track in album.tracks]
@@ -1245,8 +1266,8 @@ class DiscTagApp:
         quality = self.quality_var.get()
         self.preview.stop()
         self.converting = True
+        self._invalidate_metadata_requests()
         self.convert_button.configure(state="disabled")
-        self.search_button.configure(state="disabled")
         self.clear_button.configure(state="disabled")
         self.progress_var.set(0)
         self.progress.configure(maximum=len(sources))
@@ -1326,8 +1347,8 @@ class DiscTagApp:
         if not confirmed:
             return
         self.updating = True
+        self._invalidate_metadata_requests()
         self.convert_button.configure(state="disabled")
-        self.search_button.configure(state="disabled")
         self.clear_button.configure(state="disabled")
         self.progress_var.set(0)
         self.progress.configure(maximum=info.size or 1)
@@ -1405,9 +1426,7 @@ class DiscTagApp:
             self.region_combo.pack(fill="x", pady=(4, 6), before=self.search_button.master)
             self.search_button.configure(text="搜索 iTunes")
         if _event is not None:
-            self.search_request_id += 1
-            self.album_request_id += 1
-            self.cover_request_id += 1
+            self._invalidate_metadata_requests()
             self.results = []
             self.results_tree.delete(*self.results_tree.get_children())
             self.album = None

@@ -57,24 +57,37 @@ class DiscogsClient:
         data = self._get(f"https://api.discogs.com/releases/{collection_id}", {}, token)
         artist = _artist_names(data.get("artists", [])) or "未知歌手"
         tracks = []
-        for index, item in enumerate(data.get("tracklist", []), 1):
-            disc_number, track_number = _position(item.get("position", ""), index)
+        previous_position = None
+        for index, item in enumerate(_audio_entries(data.get("tracklist", [])), 1):
+            position = _position(item.get("position", ""))
+            disc_number, track_number = position or (1, index)
+            performer = _artist_names(item.get("artists", [])) or artist
+            duration = _duration_ms(item.get("duration", ""))
+            if tracks and position is not None and position == previous_position:
+                # 3.1 / 3.2 等子曲目属于同一条 CD 音轨。
+                previous = tracks[-1]
+                previous.title += " / " + item.get("title", f"Track {index}")
+                if performer != previous.artist:
+                    previous.artist += "、" + performer
+                previous.duration_ms = previous.duration_ms + duration if previous.duration_ms and duration else 0
+                continue
             tracks.append(
                 TrackMetadata(
                     title=item.get("title", f"Track {index}"),
-                    artist=_artist_names(item.get("artists", [])) or artist,
+                    artist=performer,
                     track_number=track_number,
-                    track_count=len(data.get("tracklist", [])),
                     disc_number=disc_number,
                     disc_count=1,
-                    duration_ms=_duration_ms(item.get("duration", "")),
+                    duration_ms=duration,
                 )
             )
+            previous_position = position
         if not tracks:
             raise DiscogsError("这张唱片没有可匹配的曲目。")
         disc_count = max(track.disc_number for track in tracks)
         for track in tracks:
             track.disc_count = disc_count
+            track.track_count = len(tracks)
         images = data.get("images", [])
         primary = next((image for image in images if image.get("type") == "primary"), images[0] if images else {})
         return AlbumMetadata(
@@ -148,13 +161,29 @@ def _artist_names(artists: list[dict]) -> str:
     return "、".join(artist.get("name", "") for artist in artists if artist.get("name"))
 
 
-def _position(value: str, fallback: int) -> tuple[int, int]:
-    match = re.match(r"(\d+)[-–](\d+)", value)
+def _audio_entries(items: list[dict], title: str = "", artists: list[dict] | None = None):
+    for item in items:
+        if item.get("type_") == "heading":
+            continue
+        name = item.get("title", "")
+        name = f"{title} ({name})" if title else name
+        performers = item.get("artists") or artists or []
+        if item.get("type_") == "index":
+            children = item.get("sub_tracks") or []
+            if not children:
+                raise DiscogsError("唱片包含没有子曲目的分组，无法确定音轨，请改用手动模式。")
+            if any(not child.get("position") and child.get("type_") not in {"heading", "index"} for child in children):
+                raise DiscogsError("分组内的子曲目缺少曲序，无法确定音轨，请改用手动模式。")
+            yield from _audio_entries(children, name, performers)
+        else:
+            yield {**item, "title": name, "artists": performers}
+
+
+def _position(value: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"(?:CD)?(?:(\d+)[-–])?(\d+)(?:\.\d+|[a-z])*", value.strip(), re.I)
     if match:
-        return int(match.group(1)), int(match.group(2))
-    if value.isdigit():
-        return 1, int(value)
-    return 1, fallback
+        return int(match.group(1) or 1), int(match.group(2))
+    return None
 
 
 def _duration_ms(value: str) -> int:

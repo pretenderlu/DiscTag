@@ -1,4 +1,4 @@
-#define MyAppVersion "1.6.4"
+#define MyAppVersion "1.6.5"
 #define MyAppName "DiscTag"
 #define MyAppPublisher "pretenderlu"
 #define MyAppURL "https://github.com/pretenderlu/DiscTag"
@@ -12,7 +12,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-VersionInfoVersion=1.6.4.0
+VersionInfoVersion=1.6.5.0
 DefaultDirName={localappdata}\Programs\DiscTag
 DefaultGroupName=DiscTag
 DisableProgramGroupPage=yes
@@ -32,7 +32,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
-Source: "..\dist\v1.6.4\DiscTag\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\DiscTag\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"

@@ -4,7 +4,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v1.6.4**
+当前版本：**v1.6.5**
 
 ## 功能
 
@@ -27,7 +27,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 [下载 Releases](https://github.com/pretenderlu/DiscTag/releases)
 
-Windows 用户可运行 `DiscTagSetup-v1.6.4.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
+Windows 用户可运行 `DiscTagSetup-v1.6.5.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
 
 Windows 版启动时会检查 GitHub 最新 Release。发现新版本后，右下角显示圆点，点击圆点或版本号可自动下载、校验并安装更新，安装完成后自动重启应用。macOS 点击后跳转到最新发布页。
 
@@ -68,6 +68,14 @@ brew install ffmpeg
 ```
 
 Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中的 FFmpeg。`vendor` 和 `dist` 不会提交到仓库。
+
+Windows 安装器从标准构建目录 `dist/DiscTag` 读取文件。完成上述构建后，使用 Inno Setup 编译 `installer/DiscTag.iss`，安装包会生成到 `dist/installer`。
+
+为保护原始音轨，输出文件不能与任何输入 WAV 使用同一路径；需要重新整理已输出的 WAV 时，请选择另一个输出根目录。
+
+## 测试
+
+安装依赖后运行 `python -m unittest discover -s tests -v`。测试使用临时音频和模拟请求，不访问个人凭据或在线曲库；没有 FFmpeg 时会跳过 FLAC/MP3 转换测试。Windows 与 macOS 的 GitHub Actions 会在推送和 PR 时运行回归测试，macOS 发布构建也会先运行测试。
 
 ## macOS GitHub Actions
 

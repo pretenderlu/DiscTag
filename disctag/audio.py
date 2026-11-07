@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -103,37 +104,43 @@ def convert_album(
     renumber_tracks(album.tracks)
     ffmpeg = None if output_format == "wav" else find_ffmpeg()
     directory = output_directory(output_root, album)
+    destinations = [output_path(directory, track, output_format) for track in album.tracks]
+    source_paths = {source.resolve() for source in sources}
+    if any(
+        destination.resolve() in source_paths
+        or (destination.exists() and any(source.exists() and destination.samefile(source) for source in sources))
+        for destination in destinations
+    ):
+        raise AudioError("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。")
     directory.mkdir(parents=True, exist_ok=True)
     result = ConversionResult(output_directory=directory)
     total = len(sources)
 
-    for index, (source, track) in enumerate(zip(sources, album.tracks), 1):
-        if progress:
-            action = "正在整理" if output_format == "wav" else "正在转换"
-            progress(index - 1, total, f"{action}：{track.title}")
-        destination = output_path(directory, track, output_format)
-        temporary = destination.with_name(f".{destination.stem}.tmp.{output_format}")
-        try:
-            _convert_file(ffmpeg, source, temporary, output_format, mp3_quality)
-            if output_format == "flac":
-                _tag_flac(temporary, album, track, cover_data)
-            elif output_format == "mp3":
-                _tag_mp3(temporary, album, track, cover_data)
-            else:
-                _tag_wave(temporary, album, track, cover_data)
-            os.replace(temporary, destination)
-            result.converted_files.append(destination)
-        except Exception as exc:
-            temporary.unlink(missing_ok=True)
-            result.failures.append(ConversionFailure(source=source, message=str(exc)))
-        if progress:
-            progress(index, total, f"已完成 {index}/{total}")
+    with tempfile.TemporaryDirectory(prefix=".disctag-", dir=directory) as staging:
+        for index, (source, track, destination) in enumerate(zip(sources, album.tracks, destinations), 1):
+            if progress:
+                action = "正在整理" if output_format == "wav" else "正在转换"
+                progress(index - 1, total, f"{action}：{track.title}")
+            temporary = Path(staging) / destination.name
+            try:
+                _convert_file(ffmpeg, source, temporary, output_format, mp3_quality)
+                if output_format == "flac":
+                    _tag_flac(temporary, album, track, cover_data)
+                elif output_format == "mp3":
+                    _tag_mp3(temporary, album, track, cover_data)
+                else:
+                    _tag_wave(temporary, album, track, cover_data)
+                os.replace(temporary, destination)
+                result.converted_files.append(destination)
+            except Exception as exc:
+                result.failures.append(ConversionFailure(source=source, message=str(exc)))
+            if progress:
+                progress(index, total, f"已完成 {index}/{total}")
 
-    if cover_data:
-        cover_path = directory / "cover.jpg"
-        temporary_cover = directory / ".cover.tmp.jpg"
-        temporary_cover.write_bytes(cover_data)
-        os.replace(temporary_cover, cover_path)
+        if cover_data:
+            temporary_cover = Path(staging) / "cover.jpg"
+            temporary_cover.write_bytes(cover_data)
+            os.replace(temporary_cover, directory / "cover.jpg")
     return result
 
 
