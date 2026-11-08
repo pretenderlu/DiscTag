@@ -30,5 +30,4 @@ def apply_native_window_style(root, color: str) -> dict[int, int]:
 
 
 def configure_native_window(root, color: str) -> None:
-    root.bind("<Map>", lambda _event: apply_native_window_style(root, color))
-    root.after(250, lambda: apply_native_window_style(root, color))
+    root.bind("<Map>", lambda event: apply_native_window_style(root, color) if event.widget is root else None)

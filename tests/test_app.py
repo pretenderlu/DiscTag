@@ -254,3 +254,50 @@ class AppTests(unittest.TestCase):
             a._convert()
         ask.assert_called_once()
         self.assertEqual(len(self.jobs), jobs_before)
+
+    def test_save_token_is_noop_until_loaded(self):
+        a = self.app
+        a.discogs_token_loaded = False
+        a.discogs_token_var.set("")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            set_password.assert_not_called()
+            delete_password.assert_not_called()
+
+    def test_save_token_after_load(self):
+        a = self.app
+        a.discogs_token_loaded = True
+        a.discogs_token_var.set("")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            delete_password.assert_called_once_with("DiscTag", "discogs_token")
+            set_password.assert_not_called()
+        a.discogs_token_var.set("tok")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            set_password.assert_called_once_with("DiscTag", "discogs_token", "tok")
+            delete_password.assert_not_called()
+
+    def test_discogs_token_ready(self):
+        a = self.app
+        a.discogs_token_var.set("")
+        a.discogs_token_loaded = False
+        a._discogs_token_ready("stored")
+        self.assertEqual(a.discogs_token_var.get(), "stored")
+        self.assertTrue(a.discogs_token_loaded)
+        a.discogs_token_var.set("typed")
+        a._discogs_token_ready("stored")
+        self.assertEqual(a.discogs_token_var.get(), "typed")
+
+    def test_map_binding_only_fires_for_root(self):
+        from disctag import windowing
+
+        root = Mock()
+        windowing.configure_native_window(root, "#000000")
+        callback = root.bind.call_args.args[1]
+        root.after.assert_not_called()
+        with patch("disctag.windowing.apply_native_window_style") as apply_style:
+            callback(Mock(widget=Mock()))
+            apply_style.assert_not_called()
+            callback(Mock(widget=root))
+            apply_style.assert_called_once_with(root, "#000000")

@@ -15,7 +15,6 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps, ImageTk
-import keyring
 
 from . import __version__
 from .audio import (
@@ -48,7 +47,7 @@ from .playback import AudioPreview
 from .rounded_panel import RoundedPanel
 from .rounded_style import apply_rounded_styles
 from .updates import download_update, check_for_updates
-from .windowing import configure_native_window
+from .windowing import apply_native_window_style, configure_native_window
 
 
 BACKGROUND = "#F3F5FA"
@@ -71,6 +70,10 @@ class DiscTagApp:
         self.cjk_font = "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI"
         self._enable_dpi_awareness()
         self.root = tk.Tk()
+        try:
+            self.root.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass
         self.root.title("DiscTag — CD 音频处理与标签工具")
         self.ui_scale = 1.0
         if sys.platform == "win32":
@@ -114,7 +117,8 @@ class DiscTagApp:
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
         self.region_var = tk.StringVar(value=self.settings.get("region", "US"))
         self.metadata_source_var = tk.StringVar(value=self.settings.get("metadata_source", "iTunes / Apple Music"))
-        self.discogs_token_var = tk.StringVar(value=self._read_discogs_token())
+        self.discogs_token_var = tk.StringVar()
+        self.discogs_token_loaded = False
         saved_cover_size = self.settings.get("cover_size", 1200)
         if saved_cover_size not in COVER_SIZES:
             saved_cover_size = 1200
@@ -133,6 +137,25 @@ class DiscTagApp:
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self.root.after(300, self._check_for_updates)
+        self._reveal()
+
+    def _reveal(self) -> None:
+        self.root.update()
+        try:
+            apply_native_window_style(self.root, "#1D1C31")
+        except (OSError, AttributeError):
+            pass
+        self.root.update_idletasks()
+        try:
+            self.root.attributes("-alpha", 1.0)
+        except tk.TclError:
+            pass
+        self._run_async(self._read_discogs_token, self._discogs_token_ready, lambda _error: self._discogs_token_ready(""))
+
+    def _discogs_token_ready(self, token: str) -> None:
+        if token and not self.discogs_token_var.get():
+            self.discogs_token_var.set(token)
+        self.discogs_token_loaded = True
 
     @staticmethod
     def _enable_dpi_awareness() -> None:
@@ -524,7 +547,7 @@ class DiscTagApp:
         status = ttk.Label(status_bar, textvariable=self.status_var, padding=(self._px(22), 0, self._px(12), self._px(10)), anchor="w")
         status.pack(side="left", fill="x", expand=True)
         version_frame = tk.Frame(status_bar, bg=BACKGROUND)
-        version_frame.pack(side="right")
+        version_frame.pack(side="right", padx=(self._px(12), self._px(22)))
         self.github_link = tk.Label(
             version_frame,
             text=f"GitHub  ·  v{__version__}",
@@ -532,7 +555,7 @@ class DiscTagApp:
             fg=ACCENT,
             font=(self.ui_font, 10),
             cursor="hand2",
-            padx=self._px(12),
+            padx=0,
             pady=self._px(7),
         )
         self.github_link.pack(side="left")
@@ -541,9 +564,9 @@ class DiscTagApp:
             text="●",
             bg=BACKGROUND,
             fg="#1A9B72",
-            font=(self.ui_font, 11),
+            font=(self.ui_font, 9),
             cursor="hand2",
-            pady=self._px(5),
+            padx=0,
         )
         self.github_link.bind("<Button-1>", lambda _event: self._open_latest_release())
         self.update_dot.bind("<Button-1>", lambda _event: self._open_latest_release())
@@ -1286,7 +1309,7 @@ class DiscTagApp:
             self.latest_update = info
             self.latest_release_url = info.url
             if not self.update_dot.winfo_ismapped():
-                self.update_dot.pack(side="left", padx=(self._px(4), 0))
+                self.update_dot.pack(side="left", padx=(self._px(6), 0))
             action = "点击圆点自动更新" if info.download_url else "点击右下角打开发布页"
             self.status_var.set(f"发现新版本 {info.version} · {action}")
 
@@ -1406,11 +1429,17 @@ class DiscTagApp:
 
     def _read_discogs_token(self) -> str:
         try:
+            import keyring
+
             return keyring.get_password("DiscTag", "discogs_token") or ""
         except Exception:
             return ""
 
     def _save_discogs_token(self) -> None:
+        if not getattr(self, "discogs_token_loaded", False):
+            return
+        import keyring
+
         token = self.discogs_token_var.get().strip()
         try:
             if token:

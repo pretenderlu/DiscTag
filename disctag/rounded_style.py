@@ -5,7 +5,8 @@ from PIL import Image, ImageDraw, ImageTk
 
 def apply_rounded_styles(root, style, scale: float) -> list[ImageTk.PhotoImage]:
     images: list[ImageTk.PhotoImage] = []
-    size = max(16, round(16 * scale))
+    size = max(96, round(96 * scale))
+    minimum = max(16, round(16 * scale))
     border = max(6, round(6 * scale))
 
     def rounded_image(fill: str, outline: str, radius: int = 5, corner: str | None = "#FFFFFF") -> ImageTk.PhotoImage:
@@ -44,6 +45,8 @@ def apply_rounded_styles(root, style, scale: float) -> list[ImageTk.PhotoImage]:
         ("disabled", button_disabled),
         border=border,
         sticky="nsew",
+        width=minimum,
+        height=minimum,
     )
     style.element_create(
         "DiscTagAccent.Button.border",
@@ -54,6 +57,8 @@ def apply_rounded_styles(root, style, scale: float) -> list[ImageTk.PhotoImage]:
         ("disabled", accent_disabled),
         border=border,
         sticky="nsew",
+        width=minimum,
+        height=minimum,
     )
     for element_name in ("DiscTag.Entry.field", "DiscTag.Combobox.field"):
         style.element_create(
@@ -64,6 +69,8 @@ def apply_rounded_styles(root, style, scale: float) -> list[ImageTk.PhotoImage]:
             ("disabled", field_disabled),
             border=border,
             sticky="nsew",
+            width=minimum,
+            height=minimum,
         )
 
     def button_layout(element_name: str):
