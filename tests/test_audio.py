@@ -94,6 +94,25 @@ class AudioTests(unittest.TestCase):
         self.assertFalse(result.failures)
         self.assertEqual(source.read_bytes(), original)
 
+    def test_multi_disc_track_totals_are_per_disc(self):
+        album = AlbumMetadata(
+            "Album", "Artist", "Artist",
+            tracks=[
+                TrackMetadata("A1", "Artist", 1, disc_number=1, disc_count=2),
+                TrackMetadata("A2", "Artist", 2, disc_number=1, disc_count=2),
+                TrackMetadata("B1", "Artist", 1, disc_number=2, disc_count=2),
+                TrackMetadata("B2", "Artist", 2, disc_number=2, disc_count=2),
+            ],
+        )
+        sources = [self.root / name for name in ("a1.wav", "a2.wav", "b1.wav", "b2.wav")]
+        for index, path in enumerate(sources):
+            write_wav(path, bytes([index + 1, 0]))
+        result = convert_album(sources, album, self.root, "wav")
+        self.assertFalse(result.failures)
+        tagged = [WAVE(path) for path in result.converted_files]
+        self.assertEqual([str(audio["TRCK"]) for audio in tagged], ["1/2", "2/2", "1/2", "2/2"])
+        self.assertEqual([str(audio["TPOS"]) for audio in tagged], ["1/2", "1/2", "2/2", "2/2"])
+
     def test_flac_and_mp3_conversion(self):
         try:
             find_ffmpeg()
@@ -107,3 +126,15 @@ class AudioTests(unittest.TestCase):
                 title = audio["title"][0] if format_name == "flac" else str(audio["TIT2"])
                 self.assertEqual(title, "Song")
                 self.assertGreater(audio.info.length, 0)
+
+    def test_float_wav_duration_falls_back_to_mutagen(self):
+        import struct
+
+        path = self.root / "float.wav"
+        frames = b"\x00\x00\x00\x00" * 44100
+        fmt = struct.pack("<HHIIHH", 3, 1, 44100, 176400, 4, 32)
+        data = b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(frames)) + frames
+        path.write_bytes(b"RIFF" + struct.pack("<I", 4 + len(data)) + b"WAVE" + data)
+        from disctag.audio import wav_duration
+
+        self.assertAlmostEqual(wav_duration(path), 1.0, places=2)

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from mutagen import MutagenError
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, ID3
 from mutagen.mp3 import MP3
@@ -54,6 +55,11 @@ def wav_duration(path: Path) -> float | None:
         with wave.open(str(path), "rb") as audio:
             return audio.getnframes() / audio.getframerate()
     except (OSError, EOFError, wave.Error, ZeroDivisionError):
+        pass
+    try:
+        length = WAVE(path).info.length
+        return length if length > 0 else None
+    except (OSError, MutagenError):
         return None
 
 
@@ -188,7 +194,7 @@ def _tag_flac(path: Path, album: AlbumMetadata, track: TrackMetadata, cover_data
     audio["album"] = album.title
     audio["albumartist"] = album.album_artist or album.artist
     audio["tracknumber"] = str(track.track_number)
-    audio["tracktotal"] = str(len(album.tracks))
+    audio["tracktotal"] = str(track.track_count)
     audio["discnumber"] = str(track.disc_number)
     audio["disctotal"] = str(track.disc_count)
     if album.release_date:
@@ -228,7 +234,7 @@ def _update_id3(tags, album: AlbumMetadata, track: TrackMetadata, cover_data: by
     tags.add(TPE1(encoding=3, text=track.artist or album.artist))
     tags.add(TALB(encoding=3, text=album.title))
     tags.add(TPE2(encoding=3, text=album.album_artist or album.artist))
-    tags.add(TRCK(encoding=3, text=f"{track.track_number}/{len(album.tracks)}"))
+    tags.add(TRCK(encoding=3, text=f"{track.track_number}/{track.track_count}"))
     tags.add(TPOS(encoding=3, text=f"{track.disc_number}/{track.disc_count}"))
     if album.release_date:
         tags.add(TDRC(encoding=3, text=album.release_date))

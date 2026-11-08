@@ -28,10 +28,22 @@ from .audio import (
     wav_duration,
 )
 from .discogs import DiscogsClient
+from .editing import (
+    MANUAL_ORIGINS,
+    EditError,
+    album_info_text,
+    can_insert,
+    delete_manual_track,
+    duration_mismatch,
+    fill_missing_by_duration,
+    insert_manual_track,
+    manual_tracks,
+    match_status,
+    track_label,
+)
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
-from .matching import align_tracks_by_duration
 from .fireworks import Fireworks
-from .models import AlbumMetadata, AlbumSummary, ConversionResult, TrackMetadata, renumber_tracks
+from .models import AlbumMetadata, AlbumSummary, ConversionResult, renumber_tracks
 from .playback import AudioPreview
 from .rounded_panel import RoundedPanel
 from .rounded_style import apply_rounded_styles
@@ -73,6 +85,7 @@ class DiscTagApp:
         self.discogs_client = DiscogsClient()
         self.preview = AudioPreview(self.root, self._playback_changed)
         self.sources: list[Path] = []
+        self.source_durations: dict[Path, float | None] = {}
         self.results: list[AlbumSummary] = []
         self.album: AlbumMetadata | None = None
         self.album_region = ""
@@ -606,6 +619,7 @@ class DiscTagApp:
         self.preview.stop()
         self._invalidate_metadata_requests()
         self.sources = files
+        self.source_durations = {path: wav_duration(path) for path in files}
         self.album = None
         self.album_region = ""
         self.metadata_dirty = False
@@ -615,6 +629,11 @@ class DiscTagApp:
         self._clear_cover()
         self._refresh_tracks()
         self.status_var.set(f"已导入 {len(files)} 个 WAV 文件")
+
+    def _source_duration(self, path: Path) -> float | None:
+        if path not in self.source_durations:
+            self.source_durations[path] = wav_duration(path)
+        return self.source_durations[path]
 
     def _invalidate_metadata_requests(self) -> None:
         self.search_request_id += 1
@@ -793,10 +812,7 @@ class DiscTagApp:
                 return
         self._invalidate_metadata_requests()
         artist = self.artist_var.get().strip() or self.album_artist_var.get().strip() or "未知歌手"
-        tracks = [
-            TrackMetadata(clean_track_title(path), artist, index, len(self.sources), origin="manual")
-            for index, path in enumerate(self.sources, 1)
-        ]
+        tracks = manual_tracks(self.sources, artist)
         self.album = AlbumMetadata(
             title=self.album_var.get().strip(),
             artist=artist,
@@ -815,14 +831,7 @@ class DiscTagApp:
     def _update_album_info(self) -> None:
         if not self.album:
             return
-        manual_count = sum(track.origin in {"manual", "auto-manual"} for track in self.album.tracks)
-        count_text = f"{len(self.album.tracks)} 首"
-        if self.album.collection_id is not None and manual_count:
-            count_text += f"（{len(self.album.tracks) - manual_count} 首 iTunes + {manual_count} 首手动）"
-        source = self.album_region or "手动模式"
-        self.album_info_var.set(
-            f"{source} · {count_text} · {self.album.genre or '未分类'} · {self.album.release_date or '日期未知'}"
-        )
+        self.album_info_var.set(album_info_text(self.album, self.album_region))
 
     def _refresh_tracks(self) -> None:
         self.tracks_tree.delete(*self.tracks_tree.get_children())
@@ -832,49 +841,33 @@ class DiscTagApp:
         for index in range(count):
             source = self.sources[index] if index < len(self.sources) else None
             track = tracks[index] if index < len(tracks) else None
-            number = f"{track.disc_number}-{track.track_number:02d}" if track and track.disc_count > 1 else (f"{track.track_number:02d}" if track else f"{index + 1:02d}")
+            number = track_label(track, index)
             title = track.title if track else (clean_track_title(source) if source else "—")
             if track and track.origin == "manual":
                 title = f"[手动] {title}"
             elif track and track.origin == "auto-manual":
                 title = f"[待确认] {title}"
             artist = track.artist if track else (self.artist_var.get() if source else "—")
-            local_duration = wav_duration(source) if source else None
+            local_duration = self._source_duration(source) if source else None
             duration = _duration(local_duration * 1000) if local_duration is not None else (_duration(track.duration_ms) if track else "—")
-            duration_mismatch = bool(
-                local_duration is not None
-                and track
-                and track.duration_ms
-                and abs(local_duration * 1000 - track.duration_ms) > 10000
-            )
-            if duration_mismatch:
+            mismatch = duration_mismatch(local_duration, track)
+            if mismatch:
                 duration_warnings += 1
-            if track and track.origin in {"manual", "auto-manual"}:
+            if track and track.origin in MANUAL_ORIGINS:
                 tag = track.origin
             else:
-                tag = "duration-warning" if duration_mismatch else ""
+                tag = "duration-warning" if mismatch else ""
             is_playing = bool(source and self.preview.playing and self.preview.path == source)
             tags = (["playing"] if is_playing else []) + ([tag] if tag else [])
             preview_icon = "■" if is_playing else "▶"
             self.tracks_tree.insert("", "end", iid=str(index), values=(preview_icon, number, source.name if source else "—", title, artist, duration), tags=tags)
-        can_insert = bool(self.album and self.album.collection_id is not None and len(self.sources) > len(tracks))
-        if can_insert:
+        if can_insert(self.album, len(self.sources)):
             self.insert_button.pack(side="left", padx=2, before=self.up_button)
             self.align_button.pack(side="left", padx=2, before=self.insert_button)
         else:
             self.align_button.pack_forget()
             self.insert_button.pack_forget()
-        if not self.sources:
-            self.match_var.set("先导入 WAV 文件")
-        elif not self.album:
-            self.match_var.set(f"已导入 {len(self.sources)} 首 · 尚未匹配专辑")
-        elif len(self.sources) > len(tracks):
-            self.match_var.set(f"本地多 {len(self.sources) - len(tracks)} 首 · 请对照实体 CD，使用时长匹配或插入缺曲")
-        elif len(self.sources) < len(tracks):
-            self.match_var.set(f"本地少 {len(tracks) - len(self.sources)} 首 · 请核对实体 CD 版本或重新匹配")
-        else:
-            warning = " · 橙行时长不同" if duration_warnings else ""
-            self.match_var.set(f"{len(self.sources)} 首已对应 · 双击编辑 / 上下移动{warning}")
+        self.match_var.set(match_status(len(self.sources), self.album, duration_warnings))
 
     def _track_clicked(self, event) -> str | None:
         if self.converting or self.tracks_tree.identify_region(event.x, event.y) != "cell":
@@ -913,6 +906,8 @@ class DiscTagApp:
             self.status_var.set("试听已停止")
 
     def _move_source(self, offset: int) -> None:
+        if self.converting or self.updating:
+            return
         selection = self.tracks_tree.selection()
         if not selection or not self.sources:
             return
@@ -927,38 +922,15 @@ class DiscTagApp:
         self.tracks_tree.focus(str(target))
 
     def _smart_match_missing(self) -> str | None:
-        if not self.album or self.album.collection_id is None or len(self.sources) <= len(self.album.tracks):
+        if not can_insert(self.album, len(self.sources)):
             return None
-        if any(track.disc_count > 1 or track.disc_number != 1 for track in self.album.tracks):
-            message = "多碟专辑请按实体 CD 曲目表手动插入缺曲"
+        durations = [duration * 1000 if (duration := self._source_duration(path)) is not None else None for path in self.sources]
+        try:
+            missing_positions = fill_missing_by_duration(self.album, durations, self.album_artist_var.get() or self.album.artist)
+        except EditError as exc:
+            message = str(exc)
             self.status_var.set(message)
             return message
-        durations = [duration * 1000 if (duration := wav_duration(path)) is not None else None for path in self.sources]
-        aligned = align_tracks_by_duration(durations, self.album.tracks)
-        if aligned is None:
-            message = "时长信息不足或差异过大，无法可靠对齐；请按实体 CD 曲目表手动插入"
-            self.status_var.set(message)
-            return message
-        completed = []
-        missing_positions = []
-        for index, track in enumerate(aligned):
-            if track is None:
-                reference = next((item for item in aligned[index + 1:] if item is not None), None)
-                if reference is None:
-                    reference = next((item for item in reversed(aligned[:index]) if item is not None), None)
-                track = TrackMetadata(
-                    title=f"待确认曲目 {index + 1:02d}",
-                    artist=self.album_artist_var.get() or self.album.artist,
-                    track_number=index + 1,
-                    track_count=len(aligned),
-                    disc_number=reference.disc_number if reference else 1,
-                    disc_count=reference.disc_count if reference else 1,
-                    origin="auto-manual",
-                )
-                missing_positions.append(index + 1)
-            completed.append(track)
-        self.album.tracks = completed
-        renumber_tracks(self.album.tracks)
         self.metadata_dirty = True
         self._update_album_info()
         self._refresh_tracks()
@@ -972,6 +944,8 @@ class DiscTagApp:
         return message
 
     def _insert_missing_track(self) -> None:
+        if self.converting or self.updating:
+            return
         if not self.album or self.album.collection_id is None or len(self.sources) <= len(self.album.tracks):
             messagebox.showinfo("无需插入", "当前没有可由手动缺曲补齐的数量差异。", parent=self.root)
             return
@@ -1029,23 +1003,12 @@ class DiscTagApp:
         dialog.geometry(f"+{x}+{y}")
 
     def _insert_track_at(self, position: int, title: str, artist: str = "") -> bool:
-        if not self.album or not title.strip() or len(self.sources) <= len(self.album.tracks):
-            return False
-        if not 1 <= position <= len(self.album.tracks) + 1:
+        if not self.album or not insert_manual_track(
+            self.album, len(self.sources), position, title,
+            artist.strip() or self.album_artist_var.get() or self.album.artist,
+        ):
             return False
         index = position - 1
-        reference = self.album.tracks[index] if index < len(self.album.tracks) else self.album.tracks[-1]
-        track = TrackMetadata(
-            title=title.strip(),
-            artist=artist.strip() or self.album_artist_var.get() or self.album.artist,
-            track_number=position,
-            track_count=len(self.album.tracks) + 1,
-            disc_number=reference.disc_number,
-            disc_count=reference.disc_count,
-            origin="manual",
-        )
-        self.album.tracks.insert(index, track)
-        renumber_tracks(self.album.tracks)
         self.metadata_dirty = True
         self._update_album_info()
         self._refresh_tracks()
@@ -1056,12 +1019,8 @@ class DiscTagApp:
         return True
 
     def _delete_manual_track(self, index: int) -> bool:
-        if not self.album or not 0 <= index < len(self.album.tracks):
+        if not self.album or not delete_manual_track(self.album, index):
             return False
-        if self.album.tracks[index].origin not in {"manual", "auto-manual"}:
-            return False
-        self.album.tracks.pop(index)
-        renumber_tracks(self.album.tracks)
         self.metadata_dirty = True
         self._update_album_info()
         self._refresh_tracks()
@@ -1073,6 +1032,8 @@ class DiscTagApp:
         return True
 
     def _edit_track(self) -> None:
+        if self.converting or self.updating:
+            return
         selection = self.tracks_tree.selection()
         if not selection or not self.album:
             return
@@ -1122,7 +1083,7 @@ class DiscTagApp:
             if confirmed and self._delete_manual_track(index):
                 dialog.destroy()
 
-        if track.origin in {"manual", "auto-manual"} and self.album.collection_id is not None:
+        if track.origin in MANUAL_ORIGINS and self.album.collection_id is not None:
             ttk.Button(frame, text="删除手动曲目", command=delete_manual).grid(row=3, column=0, sticky="w", pady=(16, 0))
         buttons = ttk.Frame(frame, style="Card.TFrame")
         buttons.grid(row=3, column=1, sticky="e", pady=(16, 0))
@@ -1171,13 +1132,16 @@ class DiscTagApp:
         self._run_async(work, done, failed)
 
     def _choose_cover(self) -> None:
+        if self.converting or self.updating:
+            return
         selected = filedialog.askopenfilename(title="选择专辑封面", filetypes=[("图片", "*.jpg *.jpeg *.png *.webp"), ("所有文件", "*.*")])
         if not selected:
             return
         try:
             image = Image.open(selected)
             image = ImageOps.exif_transpose(image).convert("RGB")
-            image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            size = self._cover_size_value()
+            image.thumbnail((size, size), Image.Resampling.LANCZOS)
             output = io.BytesIO()
             image.save(output, "JPEG", quality=94, optimize=True)
             self.cover_request_id += 1
@@ -1256,8 +1220,10 @@ class DiscTagApp:
         output_root = Path(self.output_var.get().strip()).expanduser()
         directory = output_directory(output_root, album)
         existing = [output_path(directory, track, self.format_var.get()) for track in album.tracks]
+        if self.cover_data:
+            existing.append(directory / "cover.jpg")
         if any(path.exists() for path in existing):
-            overwrite = messagebox.askyesno("确认覆盖", "输出目录中已有同名曲目。继续处理会覆盖这些文件，是否继续？", parent=self.root)
+            overwrite = messagebox.askyesno("确认覆盖", "输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？", parent=self.root)
             if not overwrite:
                 return
         sources = list(self.sources)

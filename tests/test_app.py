@@ -43,6 +43,7 @@ class AppTests(unittest.TestCase):
             setattr(a, name, Mock())
         a.results_tree.get_children.return_value = ()
         a.sources = [self.root / "source.wav"]
+        a.source_durations = {}
         a.album = None
         a.album_region = ""
         a.metadata_dirty = False
@@ -194,3 +195,62 @@ class AppTests(unittest.TestCase):
         self.assertTrue(a.converting)
         self.assertFalse(a.results)
         a.search_button.configure.assert_called_with(state="disabled")
+
+    def test_import_caches_wav_durations(self):
+        a = self.app
+        directory = self.root / "wavs"
+        directory.mkdir()
+        for name in ("01.wav", "02.wav"):
+            (directory / name).write_bytes(b"dummy")
+        with patch("disctag.app.filedialog.askdirectory", return_value=str(directory)), \
+                patch("disctag.app.wav_duration", side_effect=lambda path: 1.0) as duration:
+            a._import_wav()
+            self.assertEqual(duration.call_count, 2)
+            self.assertEqual(a._source_duration(a.sources[0]), 1.0)
+            self.assertEqual(duration.call_count, 2)
+
+    def test_source_duration_reads_uncached_path_once(self):
+        a = self.app
+        path = self.root / "other.wav"
+        with patch("disctag.app.wav_duration", return_value=2.5) as duration:
+            self.assertEqual(a._source_duration(path), 2.5)
+            self.assertEqual(a._source_duration(path), 2.5)
+            duration.assert_called_once_with(path)
+
+    def test_local_cover_respects_size_setting(self):
+        import io
+
+        from PIL import Image
+
+        a = self.app
+        cover = self.root / "cover.jpg"
+        Image.new("RGB", (2000, 2000), "blue").save(cover, "JPEG")
+        a.cover_size_var.set("600 × 600")
+        with patch("disctag.app.filedialog.askopenfilename", return_value=str(cover)):
+            a._choose_cover()
+        self.assertEqual(Image.open(io.BytesIO(a.cover_data)).size, (600, 600))
+        self.assertTrue(a.cover_is_local)
+
+    def test_move_source_is_blocked_while_converting(self):
+        a = self.app
+        a.converting = True
+        a.tracks_tree = Mock()
+        a.tracks_tree.selection.return_value = ("0",)
+        a.sources = [self.root / "a.wav", self.root / "b.wav"]
+        a.album = AlbumMetadata("Album", "Artist", "Artist",
+                                tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
+        a._move_source(1)
+        self.assertEqual([path.name for path in a.sources], ["a.wav", "b.wav"])
+
+    def test_convert_confirms_cover_overwrite(self):
+        a = self.app
+        a.album = self.album("Manual Album")
+        a.cover_data = b"x"
+        directory = output_directory(self.root, a.album)
+        directory.mkdir(parents=True)
+        (directory / "cover.jpg").write_bytes(b"old")
+        jobs_before = len(self.jobs)
+        with patch("disctag.app.messagebox.askyesno", return_value=False) as ask:
+            a._convert()
+        ask.assert_called_once()
+        self.assertEqual(len(self.jobs), jobs_before)

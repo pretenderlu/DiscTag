@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 import requests
 from PIL import Image, ImageOps
 
+from . import __version__
 from .apple_music_web import AppleMusicWebClient
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
@@ -149,13 +150,13 @@ class ITunesClient:
         candidate_sizes = [size, *(candidate for candidate in reversed(COVER_SIZES) if candidate < size), 100]
         urls = []
         for candidate in candidate_sizes:
-            url = re.sub(r"\d+x\d+bb(\.[A-Za-z]+)$", rf"{candidate}x{candidate}bb\1", artwork_url)
+            url = re.sub(r"\d+x\d+(?:bb|bf|cc)?(?:-\d+)?(\.[A-Za-z]+)$", rf"{candidate}x{candidate}bb\1", artwork_url)
             if url not in urls:
                 urls.append(url)
         last_error = None
         for url in urls:
             try:
-                response = requests.get(url, headers={"User-Agent": "DiscTag/1.0"}, timeout=self.timeout)
+                response = requests.get(url, headers={"User-Agent": f"DiscTag/{__version__}"}, timeout=self.timeout)
                 response.raise_for_status()
                 if len(response.content) > 25 * 1024 * 1024:
                     raise ITunesError("封面文件过大。")
@@ -171,7 +172,7 @@ class ITunesClient:
 
     def _get(self, url: str, params: dict) -> dict:
         try:
-            response = requests.get(url, params=params, headers={"User-Agent": "DiscTag/1.0"}, timeout=self.timeout)
+            response = requests.get(url, params=params, headers={"User-Agent": f"DiscTag/{__version__}"}, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as exc:

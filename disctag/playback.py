@@ -16,6 +16,7 @@ class AudioPreview:
         self.process: subprocess.Popen | None = None
         self.started = 0.0
         self.duration = 0.0
+        self._poll_id = None
 
     @property
     def playing(self) -> bool:
@@ -49,11 +50,14 @@ class AudioPreview:
         self.started = time.monotonic()
         self.duration = wav_duration(path) or 0.0
         self.on_change(True, path)
-        self.root.after(250, self._poll)
+        self._poll_id = self.root.after(250, self._poll)
 
     def stop(self) -> None:
         if not self.playing:
             return
+        if self._poll_id is not None:
+            self.root.after_cancel(self._poll_id)
+            self._poll_id = None
         path = self.path
         if sys.platform == "win32":
             import winsound
@@ -75,6 +79,7 @@ class AudioPreview:
         self.on_change(False, path)
 
     def _poll(self) -> None:
+        self._poll_id = None
         if not self.playing:
             return
         finished = self.process is not None and self.process.poll() is not None
@@ -83,4 +88,4 @@ class AudioPreview:
         if finished:
             self.stop()
         else:
-            self.root.after(250, self._poll)
+            self._poll_id = self.root.after(250, self._poll)

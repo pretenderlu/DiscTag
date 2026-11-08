@@ -66,13 +66,16 @@ def check_for_updates(current_version: str, repository: str = "pretenderlu/DiscT
         ),
         {},
     )
+    digest = str(installer.get("digest", "") or "")
+    if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+        installer = {}
     return UpdateInfo(
         version=tag,
         url=url,
         download_url=installer.get("browser_download_url", ""),
         installer_name=installer.get("name", ""),
         size=int(installer.get("size", 0) or 0),
-        sha256=str(installer.get("digest", "") or "").removeprefix("sha256:"),
+        sha256=digest.removeprefix("sha256:").lower() if installer else "",
     )
 
 
@@ -83,6 +86,8 @@ def download_update(
 ) -> Path:
     if not info.download_url:
         raise UpdateError("该版本没有可自动安装的 Windows 安装包。")
+    if not info.sha256:
+        raise UpdateError("该版本缺少安装包校验信息，请前往发布页手动下载。")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".download")
     digest = hashlib.sha256()
@@ -102,7 +107,7 @@ def download_update(
                         progress(downloaded, total)
         if info.size and downloaded != info.size:
             raise UpdateError("更新包下载不完整，请重试。")
-        if info.sha256 and digest.hexdigest() != info.sha256:
+        if digest.hexdigest() != info.sha256.lower():
             raise UpdateError("更新包校验失败，已阻止安装。")
         os.replace(temporary, destination)
         return destination

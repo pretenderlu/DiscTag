@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 import requests
 from PIL import Image, ImageOps
 
+from . import __version__
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -30,6 +31,7 @@ class DiscogsClient:
             {
                 "q": " ".join(part.strip() for part in (artist, album) if part.strip()),
                 "type": "release",
+                "format": "CD",
                 "per_page": 20,
             },
             token,
@@ -39,6 +41,7 @@ class DiscogsClient:
             if item.get("type") != "release" or not item.get("id"):
                 continue
             artist_name, title = _split_release_title(item.get("title", ""))
+            artist_name = _clean_artist(artist_name)
             albums.append(
                 AlbumSummary(
                     collection_id=int(item["id"]),
@@ -94,7 +97,7 @@ class DiscogsClient:
             title=data.get("title", ""),
             artist=artist,
             album_artist=artist,
-            release_date=data.get("released") or str(data.get("year", "") or ""),
+            release_date=re.sub(r"(?:-00)+$", "", data.get("released") or "") or str(data.get("year", "") or ""),
             genre=(data.get("genres") or [""])[0],
             artwork_url=primary.get("uri") or primary.get("resource_url", ""),
             collection_id=collection_id,
@@ -107,7 +110,7 @@ class DiscogsClient:
             raise DiscogsError("这张唱片没有可用封面。")
         try:
             self._throttle()
-            response = requests.get(artwork_url, headers=self._headers(token), timeout=self.timeout)
+            response = requests.get(artwork_url, headers=self._headers(""), timeout=self.timeout)
             response.raise_for_status()
             if len(response.content) > 25 * 1024 * 1024:
                 raise DiscogsError("封面文件过大。")
@@ -144,7 +147,7 @@ class DiscogsClient:
 
     @staticmethod
     def _headers(token: str) -> dict:
-        headers = {"User-Agent": "DiscTag/1.5 +https://github.com/pretenderlu/DiscTag"}
+        headers = {"User-Agent": f"DiscTag/{__version__} +https://github.com/pretenderlu/DiscTag"}
         if token.strip():
             headers["Authorization"] = f"Discogs token={token.strip()}"
         return headers
@@ -157,8 +160,20 @@ def _split_release_title(value: str) -> tuple[str, str]:
     return "", value.strip() or "未知专辑"
 
 
+def _clean_artist(value: str) -> str:
+    value = re.sub(r"\s\(\d+\)(?=\*?(?:\s|,|$))", "", value)
+    return re.sub(r"(?<=\S)\*(?=\s|,|$)", "", value).strip()
+
+
 def _artist_names(artists: list[dict]) -> str:
-    return "、".join(artist.get("name", "") for artist in artists if artist.get("name"))
+    entries = [(_clean_artist(artist.get("anv") or artist.get("name", "")), (artist.get("join") or "").strip()) for artist in artists]
+    entries = [entry for entry in entries if entry[0]]
+    parts = []
+    for index, (name, join) in enumerate(entries):
+        parts.append(name)
+        if index < len(entries) - 1:
+            parts.append("、" if not join else ", " if join == "," else f" {join} ")
+    return "".join(parts)
 
 
 def _audio_entries(items: list[dict], title: str = "", artists: list[dict] | None = None):

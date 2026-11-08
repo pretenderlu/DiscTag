@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 
 import requests
 
+from . import __version__
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -108,7 +109,7 @@ class AppleMusicWebClient:
                 url,
                 params=params,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; DiscTag/1.0; +https://github.com/pretenderlu/DiscTag)",
+                    "User-Agent": f"Mozilla/5.0 (compatible; DiscTag/{__version__}; +https://github.com/pretenderlu/DiscTag)",
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5",
                 },
                 timeout=self.timeout,

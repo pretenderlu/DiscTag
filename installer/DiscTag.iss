@@ -1,4 +1,9 @@
-#define MyAppVersion "1.6.5"
+#ifndef MyAppVersion
+  #define VersionFile FileOpen(AddBackslash(SourcePath) + "..\disctag\__init__.py")
+  #define VersionLine FileRead(VersionFile)
+  #expr FileClose(VersionFile)
+  #define MyAppVersion Copy(VersionLine, Pos('"', VersionLine) + 1, RPos('"', VersionLine) - Pos('"', VersionLine) - 1)
+#endif
 #define MyAppName "DiscTag"
 #define MyAppPublisher "pretenderlu"
 #define MyAppURL "https://github.com/pretenderlu/DiscTag"
@@ -12,7 +17,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-VersionInfoVersion=1.6.5.0
+VersionInfoVersion={#MyAppVersion}.0
 DefaultDirName={localappdata}\Programs\DiscTag
 DefaultGroupName=DiscTag
 DisableProgramGroupPage=yes

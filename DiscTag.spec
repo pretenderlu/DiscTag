@@ -1,9 +1,11 @@
+import re
 import shutil
 import sys
 from pathlib import Path
 
 
 project = Path(SPECPATH)
+version = re.search(r'__version__\s*=\s*"([^"]+)"', (project / "disctag" / "__init__.py").read_text(encoding="utf-8")).group(1)
 executable = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
 bundled_ffmpeg = project / "vendor" / executable
 ffmpeg = str(bundled_ffmpeg) if bundled_ffmpeg.is_file() else shutil.which("ffmpeg")
@@ -85,7 +87,8 @@ if sys.platform == "darwin":
         bundle_identifier="app.disctag.desktop",
         info_plist={
             "CFBundleDisplayName": "DiscTag",
-            "CFBundleShortVersionString": "1.6.5",
+            "CFBundleShortVersionString": version,
+            "CFBundleVersion": version,
             "NSHighResolutionCapable": True,
         },
     )

@@ -1,5 +1,4 @@
 requests>=2.31,<3
 mutagen>=1.47,<2
 Pillow>=10,<13
-PyInstaller>=6,<7
 keyring>=25,<26
