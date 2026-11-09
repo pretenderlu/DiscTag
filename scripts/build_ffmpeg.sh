@@ -40,7 +40,7 @@ verify_sha256() {
 
 fetch() {
     local name="$1" url="$2" sha256="$3"
-    curl -fL --retry 3 -o "$WORK/$name" "$url"
+    curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o "$WORK/$name" "$url"
     verify_sha256 "$WORK/$name" "$sha256"
 }
 
