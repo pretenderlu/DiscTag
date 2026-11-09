@@ -4,7 +4,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v1.6.7**
+当前版本：**v2.0.0**
 
 ## 功能
 
@@ -27,7 +27,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 [下载 Releases](https://github.com/pretenderlu/DiscTag/releases)
 
-Windows 用户可运行 `DiscTagSetup-v1.6.7.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
+Windows 用户可运行 `DiscTagSetup-v2.0.0.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
 
 Windows 版启动时会检查 GitHub 最新 Release。发现新版本后，右下角显示圆点，点击圆点或版本号可自动下载、校验并安装更新，安装完成后自动重启应用。macOS 点击后跳转到最新发布页。
 
