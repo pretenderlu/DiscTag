@@ -106,6 +106,7 @@ class DiscTagApp:
         self.first_icon_click_time = 0.0
         self.easter_egg_dialog = None
         self.easter_egg_image = None
+        self.update_dialog = None
         self.fireworks = None
         self.album_var = tk.StringVar()
         self.artist_var = tk.StringVar()
@@ -1342,7 +1343,7 @@ class DiscTagApp:
             self.latest_release_url = info.url
             if not self.update_dot.winfo_ismapped():
                 self.update_dot.pack(side="left", padx=(self._px(6), 0))
-            action = "点击圆点自动更新" if info.download_url else "点击右下角打开发布页"
+            action = "点击圆点查看更新" if info.download_url else "点击右下角打开发布页"
             self.status_var.set(f"发现新版本 {info.version} · {action}")
 
         self._run_async(work, done, lambda _error: None)
@@ -1360,12 +1361,83 @@ class DiscTagApp:
             messagebox.showwarning("正在处理专辑", "请等待当前专辑处理完成后再更新。", parent=self.root)
             return
         info = self.latest_update
-        confirmed = messagebox.askyesno(
-            "自动更新",
-            f"发现新版本 {info.version}，是否下载并自动安装？\n\n{info.installer_name}",
-            parent=self.root,
+        if not info:
+            return
+        self._show_update_dialog(info)
+
+    def _show_update_dialog(self, info) -> None:
+        if self.update_dialog and self.update_dialog.winfo_exists():
+            return
+        dialog = tk.Toplevel(self.root)
+        self.update_dialog = dialog
+        dialog.title("自动更新")
+        dialog.configure(bg=CARD)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        frame = ttk.Frame(dialog, style="Card.TFrame", padding=self._px(22))
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=f"发现新版本 {info.version}", style="Title.Card.TLabel").pack(anchor="w")
+        if info.notes:
+            notes_frame = ttk.Frame(frame, style="Card.TFrame")
+            notes_frame.pack(fill="x", pady=(self._px(12), 0))
+            notes = tk.Text(
+                notes_frame,
+                wrap="word",
+                height=8,
+                width=52,
+                font=(self.cjk_font, 10),
+                bg="#F8F9FC",
+                fg=INK,
+                relief="flat",
+                highlightthickness=1,
+                highlightbackground="#DCE0EB",
+                padx=self._px(10),
+                pady=self._px(8),
+            )
+            notes_scroll = ttk.Scrollbar(notes_frame, orient="vertical", command=notes.yview)
+            notes.configure(yscrollcommand=notes_scroll.set)
+            notes.pack(side="left", fill="both", expand=True)
+            notes_scroll.pack(side="right", fill="y")
+            notes.insert("1.0", info.notes.strip())
+            notes.configure(state="disabled")
+        release_link = ttk.Label(
+            frame,
+            text="查看发布页并手动下载",
+            style="Card.TLabel",
+            foreground=ACCENT,
+            cursor="hand2",
         )
-        if not confirmed:
+        release_link.pack(anchor="w", pady=(self._px(14), 0))
+        release_link.bind("<Button-1>", lambda _event: webbrowser.open(info.url, new=2))
+        release_link.bind("<Enter>", lambda _event: release_link.configure(font=(self.ui_font, 11, "underline")))
+        release_link.bind("<Leave>", lambda _event: release_link.configure(font=(self.ui_font, 11)))
+        ttk.Label(frame, text="是否下载并自动安装？", style="Card.TLabel").pack(anchor="w", pady=(self._px(16), 0))
+        buttons = ttk.Frame(frame, style="Card.TFrame")
+        buttons.pack(anchor="e", pady=(self._px(12), 0))
+        ttk.Button(buttons, text="否", command=self._close_update_dialog).pack(side="left", padx=(0, 8))
+        yes_button = ttk.Button(buttons, text="是", style="Accent.TButton", command=lambda: self._begin_update_download(info))
+        yes_button.pack(side="left")
+        yes_button.bind("<Return>", lambda _event: self._begin_update_download(info))
+        yes_button.focus_set()
+        dialog.protocol("WM_DELETE_WINDOW", self._close_update_dialog)
+        dialog.bind("<Escape>", lambda _event: self._close_update_dialog())
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+    def _close_update_dialog(self) -> None:
+        if self.update_dialog and self.update_dialog.winfo_exists():
+            self.update_dialog.destroy()
+        self.update_dialog = None
+
+    def _begin_update_download(self, info) -> None:
+        self._close_update_dialog()
+        if self.updating:
+            return
+        if self.converting:
+            messagebox.showwarning("正在处理专辑", "请等待当前专辑处理完成后再更新。", parent=self.root)
             return
         self.updating = True
         self._invalidate_metadata_requests()
@@ -1411,7 +1483,15 @@ class DiscTagApp:
         self.search_button.configure(state="normal")
         self.clear_button.configure(state="normal")
         self.status_var.set(f"自动更新失败：{error}")
-        messagebox.showerror("自动更新失败", f"{error}\n\n也可以点击右下角 GitHub 手动下载。", parent=self.root)
+        choice = messagebox.askyesnocancel(
+            "自动更新失败",
+            f"{error}\n\n选择\"是\"重试下载，选择\"否\"打开发布页手动下载。",
+            parent=self.root,
+        )
+        if choice:
+            self._start_update_download()
+        elif choice is False and self.latest_update:
+            webbrowser.open(self.latest_update.url, new=2)
 
     def _run_async(self, work, done, failed) -> None:
         def runner():
@@ -1490,6 +1570,7 @@ class DiscTagApp:
             return
         self.preview.stop()
         self._close_easter_egg()
+        self._close_update_dialog()
         self._save_settings()
         self.root.destroy()
 

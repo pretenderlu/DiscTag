@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import requests
+
+from . import __version__
 
 
 class UpdateError(RuntimeError):
@@ -22,6 +25,8 @@ class UpdateInfo:
     installer_name: str = ""
     size: int = 0
     sha256: str = ""
+    alternate_url: str = ""
+    notes: str = ""
 
 
 def version_key(value: str) -> tuple[int, ...]:
@@ -76,7 +81,50 @@ def check_for_updates(current_version: str, repository: str = "pretenderlu/DiscT
         installer_name=installer.get("name", ""),
         size=int(installer.get("size", 0) or 0),
         sha256=digest.removeprefix("sha256:").lower() if installer else "",
+        alternate_url=installer.get("url", ""),
+        notes=str(payload.get("body", "") or ""),
     )
+
+
+def _is_retryable(error: Exception) -> bool:
+    if isinstance(error, requests.HTTPError):
+        status = error.response.status_code if error.response is not None else 0
+        return status == 429 or status >= 500
+    return isinstance(error, (requests.ConnectionError, requests.Timeout))
+
+
+def _fetch_stream(
+    info: UpdateInfo,
+    url: str,
+    temporary: Path,
+    progress: Callable[[int, int], None] | None,
+) -> None:
+    digest = hashlib.sha256()
+    downloaded = 0
+    with requests.get(
+        url,
+        headers={
+            "Accept": "application/octet-stream",
+            "User-Agent": f"DiscTag/{__version__}",
+        },
+        stream=True,
+        timeout=(10, 60),
+    ) as response:
+        response.raise_for_status()
+        total = info.size or int(response.headers.get("Content-Length", 0))
+        with temporary.open("wb") as output:
+            for chunk in response.iter_content(1024 * 1024):
+                if not chunk:
+                    continue
+                output.write(chunk)
+                digest.update(chunk)
+                downloaded += len(chunk)
+                if progress:
+                    progress(downloaded, total)
+    if info.size and downloaded != info.size:
+        raise UpdateError("更新包下载不完整，请重试。")
+    if digest.hexdigest() != info.sha256.lower():
+        raise UpdateError("更新包校验失败，已阻止安装。")
 
 
 def download_update(
@@ -90,27 +138,24 @@ def download_update(
         raise UpdateError("该版本缺少安装包校验信息，请前往发布页手动下载。")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".download")
-    digest = hashlib.sha256()
-    downloaded = 0
-    try:
-        with requests.get(info.download_url, stream=True, timeout=30) as response:
-            response.raise_for_status()
-            total = info.size or int(response.headers.get("Content-Length", 0))
-            with temporary.open("wb") as output:
-                for chunk in response.iter_content(1024 * 1024):
-                    if not chunk:
-                        continue
-                    output.write(chunk)
-                    digest.update(chunk)
-                    downloaded += len(chunk)
-                    if progress:
-                        progress(downloaded, total)
-        if info.size and downloaded != info.size:
-            raise UpdateError("更新包下载不完整，请重试。")
-        if digest.hexdigest() != info.sha256.lower():
-            raise UpdateError("更新包校验失败，已阻止安装。")
-        os.replace(temporary, destination)
-        return destination
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
+    urls = [info.download_url, info.download_url]
+    if info.alternate_url:
+        urls.append(info.alternate_url)
+    urls.append(info.download_url)
+    last_error: Exception | None = None
+    for index, url in enumerate(urls):
+        if index:
+            time.sleep(2)
+        try:
+            _fetch_stream(info, url, temporary, progress)
+            os.replace(temporary, destination)
+            return destination
+        except UpdateError:
+            raise
+        except Exception as exc:
+            if not _is_retryable(exc):
+                raise UpdateError(f"下载失败：{exc}") from exc
+            last_error = exc
+        finally:
+            temporary.unlink(missing_ok=True)
+    raise UpdateError(f"下载失败：{last_error}")

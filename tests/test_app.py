@@ -52,6 +52,12 @@ class AppTests(unittest.TestCase):
         a.cover_is_local = False
         a.search_request_id = a.album_request_id = a.cover_request_id = 0
         a.converting = a.updating = False
+        a.update_dialog = None
+        a.ui_scale = 1.0
+        a.ui_font = "Segoe UI"
+        a.ui_semibold = "Segoe UI Semibold"
+        a.cjk_font = "Microsoft YaHei UI"
+        a.latest_release_url = "https://github.com/pretenderlu/DiscTag/releases/latest"
         a.results = []
         a.client = Mock(last_warnings=[])
         a.discogs_client = Mock()
@@ -326,3 +332,163 @@ class AppTests(unittest.TestCase):
                     work()
                     self.assertEqual(convert.call_args.args[-2:], expected)
                     a.converting = False
+
+    def update_info(self, notes=""):
+        from disctag.updates import UpdateInfo
+
+        return UpdateInfo(
+            "9.9.9",
+            "https://github.com/pretenderlu/DiscTag/releases/tag/v9.9.9",
+            download_url="https://github.com/pretenderlu/DiscTag/releases/download/v9.9.9/DiscTagSetup-v9.9.9.exe",
+            installer_name="DiscTagSetup-v9.9.9.exe",
+            size=1234,
+            notes=notes,
+        )
+
+    def show_update_dialog(self, info):
+        a = self.app
+        a.root.winfo_rootx.return_value = 100
+        a.root.winfo_rooty.return_value = 100
+        a.root.winfo_width.return_value = 1200
+        a.root.winfo_height.return_value = 800
+        toplevel = Mock()
+        toplevel.winfo_width.return_value = 400
+        toplevel.winfo_height.return_value = 300
+        toplevel.winfo_exists.return_value = True
+        with patch("disctag.app.tk.Toplevel", return_value=toplevel) as toplevel_class, \
+                patch("disctag.app.tk.Text") as text, \
+                patch("disctag.app.ttk.Frame"), \
+                patch("disctag.app.ttk.Label"), \
+                patch("disctag.app.ttk.Scrollbar"), \
+                patch("disctag.app.ttk.Button") as button:
+            a._show_update_dialog(info)
+        return toplevel_class, toplevel, text, button
+
+    def dialog_button(self, button, text):
+        for call in button.call_args_list:
+            if call.kwargs.get("text") == text:
+                return call.kwargs["command"]
+        raise AssertionError(f"no dialog button labelled {text}")
+
+    def test_open_latest_release_shows_update_dialog_on_windows(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a._show_update_dialog = Mock()
+        with patch("disctag.app.sys") as app_sys, patch("disctag.app.webbrowser") as browser:
+            app_sys.platform = "win32"
+            a._open_latest_release()
+        a._show_update_dialog.assert_called_once_with(a.latest_update)
+        browser.open.assert_not_called()
+
+    def test_open_latest_release_without_download_opens_browser(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a.latest_release_url = a.latest_update.url
+        for platform in ("darwin", "linux"):
+            with self.subTest(platform=platform), \
+                    patch("disctag.app.sys") as app_sys, \
+                    patch("disctag.app.webbrowser") as browser:
+                app_sys.platform = platform
+                a._open_latest_release()
+            browser.open.assert_called_once_with(a.latest_update.url, new=2)
+
+    def test_start_update_download_opens_dialog(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a._show_update_dialog = Mock()
+        a._start_update_download()
+        a._show_update_dialog.assert_called_once_with(a.latest_update)
+        self.assertFalse(self.jobs)
+
+    def test_start_update_download_blocked_while_converting(self):
+        a = self.app
+        a.converting = True
+        a.latest_update = self.update_info()
+        a._show_update_dialog = Mock()
+        with patch("disctag.app.messagebox.showwarning") as warning:
+            a._start_update_download()
+        warning.assert_called_once()
+        a._show_update_dialog.assert_not_called()
+        self.assertFalse(self.jobs)
+
+    def test_update_dialog_yes_starts_download(self):
+        a = self.app
+        info = self.update_info()
+        a._begin_update_download = Mock()
+        _, _, _, button = self.show_update_dialog(info)
+        self.dialog_button(button, "是")()
+        a._begin_update_download.assert_called_once_with(info)
+
+    def test_update_dialog_no_closes_without_browser(self):
+        a = self.app
+        info = self.update_info()
+        a._begin_update_download = Mock()
+        _, toplevel, _, button = self.show_update_dialog(info)
+        with patch("disctag.app.webbrowser") as browser:
+            self.dialog_button(button, "否")()
+        browser.open.assert_not_called()
+        a._begin_update_download.assert_not_called()
+        toplevel.destroy.assert_called_once()
+        self.assertIsNone(a.update_dialog)
+
+    def test_update_dialog_shows_release_notes(self):
+        info = self.update_info(notes="- 修复若干问题\n- 新增下载重试\n")
+        _, _, text, _ = self.show_update_dialog(info)
+        text.return_value.insert.assert_called_once_with("1.0", "- 修复若干问题\n- 新增下载重试")
+        text.return_value.configure.assert_any_call(state="disabled")
+
+    def test_update_dialog_is_not_duplicated(self):
+        a = self.app
+        info = self.update_info()
+        toplevel_class, toplevel, _, _ = self.show_update_dialog(info)
+        toplevel_class.assert_called_once()
+        self.assertIs(a.update_dialog, toplevel)
+        with patch("disctag.app.tk.Toplevel") as again:
+            a._show_update_dialog(info)
+        again.assert_not_called()
+        self.assertIs(a.update_dialog, toplevel)
+
+    def test_begin_update_download_starts_download(self):
+        a = self.app
+        a._begin_update_download(self.update_info())
+        self.assertTrue(a.updating)
+        self.assertEqual(len(self.jobs), 1)
+        a.convert_button.configure.assert_called_with(state="disabled")
+        a.clear_button.configure.assert_called_with(state="disabled")
+
+    def test_update_failed_retry_restarts_download(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a.updating = True
+        a._start_update_download = Mock()
+        with patch("disctag.app.messagebox.askyesnocancel", return_value=True), \
+                patch("disctag.app.webbrowser") as browser:
+            a._update_failed(RuntimeError("boom"))
+        a._start_update_download.assert_called_once_with()
+        browser.open.assert_not_called()
+        self.assertFalse(a.updating)
+        a.convert_button.configure.assert_called_with(state="normal")
+
+    def test_update_failed_no_opens_release_page(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a.updating = True
+        a._start_update_download = Mock()
+        with patch("disctag.app.messagebox.askyesnocancel", return_value=False), \
+                patch("disctag.app.webbrowser") as browser:
+            a._update_failed(RuntimeError("boom"))
+        browser.open.assert_called_once_with(a.latest_update.url, new=2)
+        a._start_update_download.assert_not_called()
+        self.assertFalse(a.updating)
+
+    def test_update_failed_cancel_does_nothing(self):
+        a = self.app
+        a.latest_update = self.update_info()
+        a.updating = True
+        a._start_update_download = Mock()
+        with patch("disctag.app.messagebox.askyesnocancel", return_value=None), \
+                patch("disctag.app.webbrowser") as browser:
+            a._update_failed(RuntimeError("boom"))
+        browser.open.assert_not_called()
+        a._start_update_download.assert_not_called()
+        self.assertFalse(a.updating)
