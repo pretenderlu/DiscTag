@@ -3,7 +3,6 @@ import os
 import struct
 import tempfile
 import unittest
-import wave
 from pathlib import Path
 
 from mutagen.flac import FLAC
