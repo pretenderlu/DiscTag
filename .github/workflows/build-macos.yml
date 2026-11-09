@@ -29,11 +29,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch pinned FFmpeg
-        run: python scripts/fetch_ffmpeg.py
-
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt
+
+      - name: Fetch pinned FFmpeg
+        run: python scripts/fetch_ffmpeg.py
 
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
