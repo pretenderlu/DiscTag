@@ -37,6 +37,7 @@ class AppTests(unittest.TestCase):
         a.format_var = Variable("wav")
         a.quality_var = Variable("320 kbps")
         a.cover_size_var = Variable("1200 × 1200")
+        a.cover_embed_var = Variable("同 cover.jpg")
         for name in ("root", "search_button", "region_label", "region_combo", "token_header",
                      "discogs_token_entry", "results_tree", "convert_button", "clear_button",
                      "progress", "preview", "cover_label", "album_entry"):
@@ -301,3 +302,27 @@ class AppTests(unittest.TestCase):
             apply_style.assert_not_called()
             callback(Mock(widget=root))
             apply_style.assert_called_once_with(root, "#000000")
+
+    def test_cover_embed_helpers_round_trip(self):
+        from disctag.app import _cover_embed_label, _cover_embed_labels, _cover_embed_value
+
+        self.assertEqual(_cover_embed_labels(),
+                         ["不嵌入", "500 × 500", "800 × 800", "1000 × 1000", "同 cover.jpg"])
+        for value in ("none", "original", 500, 800, 1000):
+            self.assertEqual(_cover_embed_value(_cover_embed_label(value)), value)
+        self.assertEqual(_cover_embed_label("bogus"), "同 cover.jpg")
+        self.assertEqual(_cover_embed_value("bogus"), "original")
+
+    def test_convert_passes_embed_choice(self):
+        a = self.app
+        a.album = self.album("Manual Album")
+        for label, expected in (("500 × 500", (True, 500)), ("不嵌入", (False, None)), ("同 cover.jpg", (True, None))):
+            with self.subTest(label=label):
+                a.cover_embed_var.set(label)
+                with patch("disctag.app.convert_album") as convert:
+                    a._convert()
+                    convert.assert_not_called()
+                    work, _, _ = self.jobs[-1]
+                    work()
+                    self.assertEqual(convert.call_args.args[-2:], expected)
+                    a.converting = False

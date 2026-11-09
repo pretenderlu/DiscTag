@@ -66,6 +66,23 @@ class FFmpegIntegrationTests(unittest.TestCase):
                 self.assertEqual(audio.info.bits_per_sample, bits)
                 self.assertAlmostEqual(audio.info.length, 2.0, delta=0.1)
 
+    def test_flac_embed_cover_false_has_no_picture(self):
+        import io
+
+        from PIL import Image
+
+        from disctag.audio import convert_album
+        from disctag.models import AlbumMetadata, TrackMetadata
+
+        cover = io.BytesIO()
+        Image.new("RGB", (64, 64), "red").save(cover, "JPEG")
+        album = AlbumMetadata("Album", "Artist", "Artist", tracks=[TrackMetadata("Song", "Artist", 1)])
+        result = convert_album([self.root / "s16.wav"], album, self.root / "out", "flac",
+                               cover_data=cover.getvalue(), embed_cover=False)
+        self.assertFalse(result.failures)
+        self.assertFalse(FLAC(result.converted_files[0]).pictures)
+        self.assertEqual((result.output_directory / "cover.jpg").read_bytes(), cover.getvalue())
+
     def test_mp3(self):
         for name in ("s16", "s24", "f32"):
             with self.subTest(name=name, quality="320 kbps"):

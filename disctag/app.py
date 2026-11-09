@@ -61,6 +61,7 @@ SUCCESS = "#167A5B"
 DANGER = "#B34452"
 REPOSITORY_URL = "https://github.com/pretenderlu/DiscTag"
 LATEST_RELEASE_URL = f"{REPOSITORY_URL}/releases/latest"
+COVER_EMBED_SIZES = (500, 800, 1000)
 
 
 class DiscTagApp:
@@ -123,6 +124,10 @@ class DiscTagApp:
         if saved_cover_size not in COVER_SIZES:
             saved_cover_size = 1200
         self.cover_size_var = tk.StringVar(value=_cover_size_label(saved_cover_size))
+        saved_cover_embed = self.settings.get("cover_embed", "original")
+        if saved_cover_embed not in {"none", "original", *COVER_EMBED_SIZES}:
+            saved_cover_embed = "original"
+        self.cover_embed_var = tk.StringVar(value=_cover_embed_label(saved_cover_embed))
         self.cover_info_var = tk.StringVar()
         self.cover_request_id = 0
         self.album_request_id = 0
@@ -175,7 +180,7 @@ class DiscTagApp:
     def _configure_window(self) -> None:
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        minimum_width = min(self._px(1100), int(screen_width * 0.96))
+        minimum_width = min(self._px(1179), int(screen_width * 0.96))
         minimum_height = min(self._px(880), int(screen_height * 0.94))
         width = max(minimum_width, min(self._px(1440), int(screen_width * 0.92)))
         height = max(minimum_height, min(self._px(1000), int(screen_height * 0.92)))
@@ -448,8 +453,11 @@ class DiscTagApp:
 
         album_top = ttk.Frame(right, style="Card.TFrame")
         album_top.pack(fill="x", pady=(0, 12))
-        self.cover_label = tk.Label(album_top, text="专辑封面", width=20, height=8, bg="#F0F1F6", fg=MUTED, font=(self.cjk_font, 11))
-        self.cover_label.pack(side="left", padx=(0, self._px(18)))
+        cover_column = ttk.Frame(album_top, style="Card.TFrame")
+        cover_column.pack(side="left", padx=(0, self._px(18)))
+        self.cover_label = tk.Label(cover_column, text="专辑封面", width=20, height=8, bg="#F0F1F6", fg=MUTED, font=(self.cjk_font, 11))
+        self.cover_label.pack()
+        ttk.Label(cover_column, textvariable=self.cover_info_var, style="Muted.Card.TLabel").pack(pady=(2, 0))
         details = ttk.Frame(album_top, style="Card.TFrame")
         details.pack(side="left", fill="both", expand=True)
         ttk.Label(details, text="3  校对并处理", style="Title.Card.TLabel").pack(anchor="w", pady=(0, 3))
@@ -465,18 +473,33 @@ class DiscTagApp:
         fields.columnconfigure(0, weight=1)
         cover_row = ttk.Frame(details, style="Card.TFrame")
         cover_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(cover_row, text="封面上限", style="Card.TLabel").pack(side="left", padx=(0, 6))
+        ttk.Label(cover_row, text="封面分辨率", style="Card.TLabel").pack(side="left", padx=(0, 6))
         self.cover_size_combo = ttk.Combobox(
             cover_row,
             textvariable=self.cover_size_var,
             values=_cover_size_labels(),
             state="readonly",
-            width=12,
+            width=10,
         )
         self.cover_size_combo.pack(side="left")
         self.cover_size_combo.bind("<<ComboboxSelected>>", self._cover_size_changed)
-        ttk.Button(cover_row, text="本地封面", command=self._choose_cover).pack(side="left", padx=(8, 0))
-        ttk.Label(cover_row, textvariable=self.cover_info_var, style="Muted.Card.TLabel").pack(side="left", padx=(10, 0))
+        ttk.Label(cover_row, text="嵌入选项", style="Card.TLabel").pack(side="left", padx=(8, 6))
+        self.cover_embed_combo = ttk.Combobox(
+            cover_row,
+            textvariable=self.cover_embed_var,
+            values=_cover_embed_labels(),
+            state="readonly",
+            width=10,
+        )
+        self.cover_embed_combo.pack(side="left")
+        ttk.Button(cover_row, text="本地封面", width=8, command=self._choose_cover).pack(side="left", padx=(8, 0))
+        ttk.Label(
+            details,
+            text="封面分辨率决定 cover.jpg 的尺寸；嵌入选项决定写进音频文件的封面",
+            style="Muted.Card.TLabel",
+            wraplength=self._px(560),
+            justify="left",
+        ).pack(anchor="w", pady=(4, 0))
 
         track_tools = ttk.Frame(right, style="Card.TFrame")
         track_tools.pack(fill="x", pady=(0, 6))
@@ -1123,12 +1146,20 @@ class DiscTagApp:
     def _cover_size_value(self) -> int:
         return int(self.cover_size_var.get().split(" ")[0])
 
+    def _cover_embed_choice(self) -> tuple[bool, int | None]:
+        value = _cover_embed_value(self.cover_embed_var.get())
+        if value == "none":
+            return False, None
+        if value == "original":
+            return True, None
+        return True, int(value)
+
     def _cover_size_changed(self, _event=None) -> None:
         self.cover_request_id += 1
         request_id = self.cover_request_id
         size = self._cover_size_value()
         if not self.album or not self.album.artwork_url or self.cover_is_local:
-            self.status_var.set(f"封面上限已设为 {size}×{size}，将在下次在线下载时生效")
+            self.status_var.set(f"封面分辨率已设为 {size}×{size}，将在下次在线下载时生效")
             return
         album = self.album
         artwork_url = album.artwork_url
@@ -1253,6 +1284,7 @@ class DiscTagApp:
         cover = self.cover_data
         output_format = self.format_var.get()
         quality = self.quality_var.get()
+        embed_cover, embed_max_size = self._cover_embed_choice()
         self.preview.stop()
         self.converting = True
         self._invalidate_metadata_requests()
@@ -1266,7 +1298,7 @@ class DiscTagApp:
             self.root.after(0, lambda: self._conversion_progress(current, total, text))
 
         def work():
-            return convert_album(sources, album, output_root, output_format, quality, cover, progress)
+            return convert_album(sources, album, output_root, output_format, quality, cover, progress, embed_cover, embed_max_size)
 
         self._run_async(work, self._conversion_done, self._conversion_failed)
 
@@ -1476,6 +1508,7 @@ class DiscTagApp:
             "region": self.region_var.get(),
             "metadata_source": self.metadata_source_var.get(),
             "cover_size": self._cover_size_value(),
+            "cover_embed": _cover_embed_value(self.cover_embed_var.get()),
         }
         try:
             path = _settings_path()
@@ -1527,6 +1560,27 @@ def _cover_size_labels() -> list[str]:
 
 def _cover_size_label(size: int) -> str:
     return f"{size} × {size}"
+
+
+def _cover_embed_labels() -> list[str]:
+    return ["不嵌入", *(_cover_size_label(size) for size in COVER_EMBED_SIZES), "同 cover.jpg"]
+
+
+def _cover_embed_label(value) -> str:
+    if value == "none":
+        return "不嵌入"
+    if value in COVER_EMBED_SIZES:
+        return _cover_size_label(value)
+    return "同 cover.jpg"
+
+
+def _cover_embed_value(label: str):
+    if label == "不嵌入":
+        return "none"
+    for size in COVER_EMBED_SIZES:
+        if label == _cover_size_label(size):
+            return size
+    return "original"
 
 
 def _duration(milliseconds: float | int | None) -> str:

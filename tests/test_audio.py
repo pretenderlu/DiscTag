@@ -75,6 +75,42 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), original)
         self.assertFalse(list(result.output_directory.glob(".disctag-*")))
 
+    def cover(self, size=1200):
+        buffer = io.BytesIO()
+        Image.new("RGB", (size, size), "red").save(buffer, "JPEG")
+        return buffer.getvalue()
+
+    def test_embed_cover_false_keeps_cover_jpg_only(self):
+        cover = self.cover()
+        result = convert_album([self.source], self.album, self.root, "wav", cover_data=cover, embed_cover=False)
+        self.assertFalse(result.failures)
+        tagged = WAVE(result.converted_files[0])
+        self.assertFalse(tagged.tags.getall("APIC"))
+        self.assertEqual((result.output_directory / "cover.jpg").read_bytes(), cover)
+
+    def test_embed_max_size_shrinks_only_embedded_image(self):
+        cover = self.cover(1200)
+        result = convert_album([self.source], self.album, self.root, "wav", cover_data=cover, embed_max_size=500)
+        self.assertFalse(result.failures)
+        tagged = WAVE(result.converted_files[0])
+        embedded = Image.open(io.BytesIO(tagged.tags.getall("APIC")[0].data))
+        self.assertEqual(embedded.size, (500, 500))
+        self.assertEqual((result.output_directory / "cover.jpg").read_bytes(), cover)
+
+    def test_embed_max_size_keeps_small_cover_unchanged(self):
+        cover = self.cover(600)
+        result = convert_album([self.source], self.album, self.root, "wav", cover_data=cover, embed_max_size=1000)
+        self.assertFalse(result.failures)
+        tagged = WAVE(result.converted_files[0])
+        self.assertEqual(tagged.tags.getall("APIC")[0].data, cover)
+
+    def test_default_embedding_uses_original_bytes(self):
+        cover = self.cover()
+        result = convert_album([self.source], self.album, self.root, "wav", cover_data=cover)
+        self.assertFalse(result.failures)
+        tagged = WAVE(result.converted_files[0])
+        self.assertEqual(tagged.tags.getall("APIC")[0].data, cover)
+
     def test_tag_failure_preserves_existing_output(self):
         target = output_path(output_directory(self.root, self.album), self.album.tracks[0], "wav")
         write_wav(target, b"\x02\x00")

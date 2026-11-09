@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -8,6 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
+
+from PIL import Image, ImageOps
 
 from mutagen import MutagenError
 from mutagen.flac import FLAC, Picture
@@ -100,6 +103,8 @@ def convert_album(
     mp3_quality: str = "320 kbps",
     cover_data: bytes | None = None,
     progress: ProgressCallback | None = None,
+    embed_cover: bool = True,
+    embed_max_size: int | None = None,
 ) -> ConversionResult:
     if len(sources) != len(album.tracks):
         raise AudioError("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。")
@@ -120,6 +125,7 @@ def convert_album(
         raise AudioError("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。")
     directory.mkdir(parents=True, exist_ok=True)
     result = ConversionResult(output_directory=directory)
+    embedded = embedded_cover(cover_data, embed_max_size) if cover_data and embed_cover else None
     total = len(sources)
 
     with tempfile.TemporaryDirectory(prefix=".disctag-", dir=directory) as staging:
@@ -131,11 +137,11 @@ def convert_album(
             try:
                 _convert_file(ffmpeg, source, temporary, output_format, mp3_quality)
                 if output_format == "flac":
-                    _tag_flac(temporary, album, track, cover_data)
+                    _tag_flac(temporary, album, track, embedded)
                 elif output_format == "mp3":
-                    _tag_mp3(temporary, album, track, cover_data)
+                    _tag_mp3(temporary, album, track, embedded)
                 else:
-                    _tag_wave(temporary, album, track, cover_data)
+                    _tag_wave(temporary, album, track, embedded)
                 os.replace(temporary, destination)
                 result.converted_files.append(destination)
             except Exception as exc:
@@ -148,6 +154,19 @@ def convert_album(
             temporary_cover.write_bytes(cover_data)
             os.replace(temporary_cover, directory / "cover.jpg")
     return result
+
+
+def embedded_cover(cover_data: bytes, max_size: int | None) -> bytes:
+    if max_size is None:
+        return cover_data
+    image = Image.open(io.BytesIO(cover_data))
+    if max(image.size) <= max_size:
+        return cover_data
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, "JPEG", quality=94, optimize=True)
+    return output.getvalue()
 
 
 def _convert_file(ffmpeg: str | None, source: Path, destination: Path, output_format: str, mp3_quality: str) -> None:
