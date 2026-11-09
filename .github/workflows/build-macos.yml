@@ -29,20 +29,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Restore cached FFmpeg
-        uses: actions/cache@v4
-        id: cache-ffmpeg
-        with:
-          path: vendor
-          key: ffmpeg-${{ matrix.runner }}-${{ hashFiles('scripts/build_ffmpeg.sh') }}
-
-      - name: Install nasm
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-        run: brew install nasm
-
-      - name: Build minimal FFmpeg
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-        run: bash scripts/build_ffmpeg.sh "$PWD/vendor"
+      - name: Fetch pinned FFmpeg
+        run: python scripts/fetch_ffmpeg.py
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt

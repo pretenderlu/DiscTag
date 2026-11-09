@@ -9,10 +9,16 @@
 
 ## 发布流程
 1. 修改 `__version__` 和 README，提交到 main。
-2. 获取精简 FFmpeg（LGPL，仅 WAV→FLAC/MP3）：运行 `Build FFmpeg` 工作流，下载 `ffmpeg-windows-x64` 构件保存为 `vendor/ffmpeg.exe`（也可用 `scripts/build_ffmpeg.sh` 自行编译）。Windows 本地构建：`python -m pip install -r requirements-dev.txt`，然后 `python build_app.py`（优先使用 `vendor/ffmpeg.exe`），输出到 `dist/DiscTag`。
+2. 获取精简 FFmpeg（LGPL，仅 WAV→FLAC/MP3）：`python scripts/fetch_ffmpeg.py` 从固定 prerelease `ffmpeg-9.0.2` 下载并校验 SHA-256 到 `vendor/`。Windows 本地构建：`python -m pip install -r requirements-dev.txt`，然后 `python build_app.py`（优先使用 `vendor/ffmpeg.exe`），输出到 `dist/DiscTag`。
 3. 用 `shutil.make_archive` 打包 `dist/DiscTag-Windows-x64.zip`（ZIP 内顶层为 `DiscTag/` 目录）。
 4. 编译安装包：`"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\DiscTag.iss`，输出 `dist/installer/DiscTagSetup-v<版本>.exe`。
 5. 归档：把 `dist/DiscTag` 复制到 `dist/v<版本>/DiscTag`。
 6. 推送 main 和附注 tag `v<版本>`（tag 信息为 `DiscTag v<版本>`）。推送 tag 后会触发 `Build macOS` 工作流，用 `gh run download` 下载两个 DMG。
 7. `gh release create`：上传安装包、ZIP 和两个 DMG，发布说明沿用以往格式。
 8. 自动更新要求 Release 资产带有 GitHub 的 `sha256` digest，发布后用 `check_for_updates("<旧版本>")` 验证。
+
+## 升级 FFmpeg
+1. 修改 `scripts/build_ffmpeg.sh` 中的版本号与 SHA-256，推送到 main（触发 `Build FFmpeg` 工作流）。
+2. 用 `gh run download` 下载 3 个构件（windows-x64 / macos-AppleSilicon / macos-Intel）。
+3. 以 `gh release create ffmpeg-<版本> --prerelease --latest=false` 创建新 prerelease，上传 3 个二进制（命名为 `ffmpeg-windows-x64.exe`、`ffmpeg-macos-AppleSilicon`、`ffmpeg-macos-Intel`）。
+4. 更新 `scripts/ffmpeg.json` 中的 tag 和各资产 SHA-256，提交。

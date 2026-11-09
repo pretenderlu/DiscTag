@@ -3,6 +3,8 @@ name: Build FFmpeg
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "main"
     paths:
       - "scripts/build_ffmpeg.sh"
       - ".github/workflows/build-ffmpeg.yml"

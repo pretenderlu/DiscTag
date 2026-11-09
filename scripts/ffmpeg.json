@@ -1,0 +1,8 @@
+{
+  "tag": "ffmpeg-9.0.2",
+  "assets": {
+    "windows-x64": {"name": "ffmpeg-windows-x64.exe", "sha256": "9665725b76e2e326750ae44ebf2e0b0ccba5a886784eaff095e78c31eea7ad9c"},
+    "macos-AppleSilicon": {"name": "ffmpeg-macos-AppleSilicon", "sha256": "163663c76a84f29c526bab8d862874318bfa9920564d64dd501805ba8c6be936"},
+    "macos-Intel": {"name": "ffmpeg-macos-Intel", "sha256": "04cfed3b5642f0f8efa531c22918c39086a221326d32ffa8328aff2ed646f4a3"}
+  }
+}
