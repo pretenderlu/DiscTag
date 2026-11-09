@@ -113,7 +113,7 @@ ls -la "$OUT_DIR/$EXE"
 if [ "$PLATFORM" = "windows" ]; then
     echo "=== Linked DLLs ==="
     objdump -p "$OUT_DIR/$EXE" | grep "DLL Name" | awk '{print $3}' | sort -u | tee "$WORK/dlls.txt"
-    BAD=$(grep -viE '^(KERNEL32|msvcrt|ADVAPI32|USER32|WS2_32|GDI32|ole32|OLEAUT32|SHELL32|IMM32|COMDLG32|COMCTL32|bcrypt|SHLWAPI|WINMM|IPHLPAPI|ntdll|RPCRT4|Secur32|SSPICLI|VERSION|AVRT|powrprof|dbghelp|SETUPAPI|CRYPT32|MFPlat|MF|MFUUID|evr|dxva2|msdmo|QUARTZ|STRMIIDS|Normaliz|WLDAP32|NETAPI32|COMBASE|OLEACC|USP10|kernel.appcore)\.dll$' "$WORK/dlls.txt" || true)
+    BAD=$(grep -viE '^(api-ms-win-(crt|core)-.*|KERNEL32|msvcrt|ADVAPI32|USER32|WS2_32|GDI32|ole32|OLEAUT32|SHELL32|IMM32|COMDLG32|COMCTL32|bcrypt|SHLWAPI|WINMM|IPHLPAPI|ntdll|RPCRT4|Secur32|SSPICLI|VERSION|AVRT|powrprof|dbghelp|SETUPAPI|CRYPT32|MFPlat|MF|MFUUID|evr|dxva2|msdmo|QUARTZ|STRMIIDS|Normaliz|WLDAP32|NETAPI32|COMBASE|OLEACC|USP10|kernel.appcore)\.dll$' "$WORK/dlls.txt" || true)
 else
     echo "=== Linked libraries ==="
     otool -L "$OUT_DIR/$EXE" | tee "$WORK/dlls.txt"
