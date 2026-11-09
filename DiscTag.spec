@@ -18,7 +18,11 @@ a = Analysis(
     [str(project / "main.py")],
     pathex=[str(project)],
     binaries=[(ffmpeg, "vendor")],
-    datas=[(str(project / "assets"), "assets")],
+    datas=[
+        (str(asset), f"assets/{asset.name}")
+        for asset in (project / "assets").iterdir()
+        if sys.platform == "darwin" or asset.name not in {"icon.icns", "icon.svg"}
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

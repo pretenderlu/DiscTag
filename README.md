@@ -62,13 +62,9 @@ python -m pip install -r requirements-dev.txt
 python build_app.py
 ```
 
-macOS 构建前先安装 FFmpeg：
+Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中的 FFmpeg；macOS 构建同理使用 `vendor/ffmpeg` 或系统 FFmpeg。`vendor` 和 `dist` 不会提交到仓库。
 
-```bash
-brew install ffmpeg
-```
-
-Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中的 FFmpeg。`vendor` 和 `dist` 不会提交到仓库。
+发布包内置的是精简 FFmpeg（LGPL，仅支持 WAV 输入与 FLAC/MP3 输出），由 `scripts/build_ffmpeg.sh` 编译。获取方式：运行仓库的 `Build FFmpeg` GitHub Actions 工作流，下载 `ffmpeg-windows-x64` 构件并保存为 `vendor/ffmpeg.exe`（macOS 对应 `ffmpeg-macos-AppleSilicon` / `ffmpeg-macos-Intel`，保存为 `vendor/ffmpeg`），然后再运行 `python build_app.py`。
 
 Windows 安装器从标准构建目录 `dist/DiscTag` 读取文件。完成上述构建后，使用 Inno Setup 编译 `installer/DiscTag.iss`，安装包会生成到 `dist/installer`。
 

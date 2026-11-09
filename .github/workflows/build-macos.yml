@@ -29,8 +29,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install FFmpeg
-        run: brew install ffmpeg
+      - name: Restore cached FFmpeg
+        uses: actions/cache@v4
+        id: cache-ffmpeg
+        with:
+          path: vendor
+          key: ffmpeg-${{ matrix.runner }}-${{ hashFiles('scripts/build_ffmpeg.sh') }}
+
+      - name: Build minimal FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: bash scripts/build_ffmpeg.sh "$PWD/vendor"
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt

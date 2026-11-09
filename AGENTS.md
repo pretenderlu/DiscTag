@@ -9,7 +9,7 @@
 
 ## 发布流程
 1. 修改 `__version__` 和 README，提交到 main。
-2. Windows 本地构建：`python -m pip install -r requirements-dev.txt`，然后 `python build_app.py`（优先使用 `vendor/ffmpeg.exe`），输出到 `dist/DiscTag`。
+2. 获取精简 FFmpeg（LGPL，仅 WAV→FLAC/MP3）：运行 `Build FFmpeg` 工作流，下载 `ffmpeg-windows-x64` 构件保存为 `vendor/ffmpeg.exe`（也可用 `scripts/build_ffmpeg.sh` 自行编译）。Windows 本地构建：`python -m pip install -r requirements-dev.txt`，然后 `python build_app.py`（优先使用 `vendor/ffmpeg.exe`），输出到 `dist/DiscTag`。
 3. 用 `shutil.make_archive` 打包 `dist/DiscTag-Windows-x64.zip`（ZIP 内顶层为 `DiscTag/` 目录）。
 4. 编译安装包：`"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\DiscTag.iss`，输出 `dist/installer/DiscTagSetup-v<版本>.exe`。
 5. 归档：把 `dist/DiscTag` 复制到 `dist/v<版本>/DiscTag`。

@@ -1,0 +1,98 @@
+name: Build FFmpeg
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/build_ffmpeg.sh"
+      - ".github/workflows/build-ffmpeg.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+            make
+            diffutils
+            curl
+            xz
+            tar
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build minimal FFmpeg
+        run: bash scripts/build_ffmpeg.sh "$PWD/ffmpeg-bin"
+
+      - name: Upload FFmpeg
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-windows-x64
+          path: ffmpeg-bin/ffmpeg.exe
+          if-no-files-found: error
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+        shell: pwsh
+
+      - name: Run FFmpeg integration tests
+        run: python -m unittest tests.test_ffmpeg_integration -v
+        shell: pwsh
+        env:
+          DISCTAG_FFMPEG: ${{ github.workspace }}/ffmpeg-bin/ffmpeg.exe
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            suffix: AppleSilicon
+          - runner: macos-15-intel
+            suffix: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build minimal FFmpeg
+        run: bash scripts/build_ffmpeg.sh "$PWD/ffmpeg-bin"
+
+      - name: Upload FFmpeg
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-${{ matrix.suffix }}
+          path: ffmpeg-bin/ffmpeg
+          if-no-files-found: error
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run FFmpeg integration tests
+        run: python -m unittest tests.test_ffmpeg_integration -v
+        env:
+          DISCTAG_FFMPEG: ${{ github.workspace }}/ffmpeg-bin/ffmpeg
