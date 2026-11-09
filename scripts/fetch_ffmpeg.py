@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import sys
 import tempfile
@@ -40,15 +41,25 @@ def main() -> None:
     if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == sha256:
         print(f"{target} 已是指定版本（{sha256[:12]}…），无需下载。")
         return
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     release = requests.get(
-        f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{manifest['tag']}", timeout=30
+        f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{manifest['tag']}",
+        headers=headers,
+        timeout=30,
     )
     release.raise_for_status()
     asset_url = next(
         entry["url"] for entry in release.json().get("assets", []) if entry.get("name") == asset["name"]
     )
     print(f"下载 {asset['name']}（{manifest['tag']}）")
-    response = requests.get(asset_url, headers={"Accept": "application/octet-stream"}, timeout=120)
+    response = requests.get(
+        asset_url,
+        headers={"Accept": "application/octet-stream", **({"Authorization": f"Bearer {token}"} if token else {})},
+        timeout=120,
+    )
     response.raise_for_status()
     data = response.content
     digest = hashlib.sha256(data).hexdigest()
