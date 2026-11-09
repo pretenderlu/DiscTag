@@ -74,6 +74,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install nasm
+        run: brew install nasm
+
       - name: Build minimal FFmpeg
         run: bash scripts/build_ffmpeg.sh "$PWD/ffmpeg-bin"
 

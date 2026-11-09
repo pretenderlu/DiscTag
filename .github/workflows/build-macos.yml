@@ -36,6 +36,10 @@ jobs:
           path: vendor
           key: ffmpeg-${{ matrix.runner }}-${{ hashFiles('scripts/build_ffmpeg.sh') }}
 
+      - name: Install nasm
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: brew install nasm
+
       - name: Build minimal FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: bash scripts/build_ffmpeg.sh "$PWD/vendor"
