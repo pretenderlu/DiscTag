@@ -19,9 +19,13 @@ a = Analysis(
     pathex=[str(project)],
     binaries=[(ffmpeg, "vendor")],
     datas=[
-        (str(asset), f"assets/{asset.name}")
-        for asset in (project / "assets").iterdir()
-        if sys.platform == "darwin" or asset.name not in {"icon.icns", "icon.svg"}
+        *(
+            (str(asset), f"assets/{asset.name}")
+            for asset in (project / "assets").iterdir()
+            if sys.platform == "darwin" or asset.name not in {"icon.icns", "icon.svg"}
+        ),
+        (str(project / "THIRD_PARTY_NOTICES.md"), "."),
+        (str(project / "licenses"), "licenses"),
     ],
     hiddenimports=[],
     hookspath=[],

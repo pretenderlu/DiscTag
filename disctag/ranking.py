@@ -33,13 +33,13 @@ def duration_fit(local_ms: list[float | None], tracks: list[TrackMetadata]) -> D
     if not tracks or any(track.duration_ms <= 0 for track in tracks):
         return None
     if len(local_ms) == len(tracks):
-        differences = [abs(local - track.duration_ms) for local, track in zip(local_ms, tracks)]
+        differences = [abs(local - track.duration_ms) for local, track in zip(local_ms, tracks, strict=True)]
         mean = sum(differences) / len(differences)
         return DurationFit(EXACT if max(differences) <= EXACT_TOLERANCE_MS else MISMATCH, mean)
     if len(local_ms) > len(tracks):
         aligned = align_tracks_by_duration(local_ms, tracks)
         if aligned is not None:
-            pairs = [(local, track) for local, track in zip(local_ms, aligned) if track is not None]
+            pairs = [(local, track) for local, track in zip(local_ms, aligned, strict=True) if track is not None]
             mean = sum(abs(local - track.duration_ms) for local, track in pairs) / len(pairs)
             return DurationFit(ALIGNED, mean)
     return DurationFit(MISMATCH)

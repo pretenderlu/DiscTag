@@ -2,20 +2,28 @@
 
 ## 测试
 - `python -m unittest discover -s tests -v`
+- 设置 `DISCTAG_FFMPEG=vendor/ffmpeg.exe`（macOS 为 `vendor/ffmpeg`）可同时运行真实 FFmpeg 转换测试；CI 会自动这样做。
+- `ruff check .`（规则见 `ruff.toml`，只检查真实错误）。
 
 ## 版本号
 - 唯一来源：`disctag/__init__.py` 的 `__version__`。`DiscTag.spec`、`installer/DiscTag.iss` 和各处 User-Agent 都从这里读取。
-- README 中的版本文字（"当前版本"和安装包文件名）需要手动同步。
+- README 中的版本文字（"当前版本"和安装包文件名）需要手动同步；`tests/test_release.py` 会在不一致时失败。
 
 ## 发布流程
-1. 修改 `__version__` 和 README，提交到 main。
-2. 获取精简 FFmpeg（LGPL，仅 WAV→FLAC/MP3）：`python scripts/fetch_ffmpeg.py` 从固定 prerelease `ffmpeg-9.0.2` 下载并校验 SHA-256 到 `vendor/`。Windows 本地构建：`python -m pip install -r requirements-dev.txt`，然后 `python build_app.py`（优先使用 `vendor/ffmpeg.exe`），输出到 `dist/DiscTag`。
-3. 用 `shutil.make_archive` 打包 `dist/DiscTag-Windows-x64.zip`（ZIP 内顶层为 `DiscTag/` 目录）。
-4. 编译安装包：`"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\DiscTag.iss`，输出 `dist/installer/DiscTagSetup-v<版本>.exe`。
-5. 归档：把 `dist/DiscTag` 复制到 `dist/v<版本>/DiscTag`。
-6. 推送 main 和附注 tag `v<版本>`（tag 信息为 `DiscTag v<版本>`）。推送 tag 后会触发 `Build macOS` 工作流，用 `gh run download` 下载两个 DMG。
-7. `gh release create`：上传安装包、ZIP 和两个 DMG，发布说明沿用以往格式。
-8. 自动更新要求 Release 资产带有 GitHub 的 `sha256` digest，发布后用 `check_for_updates("<旧版本>")` 验证。
+1. 修改 `__version__` 和 README，提交到 main，等待 `Tests` 工作流通过。
+2. 推送附注 tag `v<版本>`（tag 信息为 `DiscTag v<版本>`）。`Release` 工作流会：
+   - 校验 tag 与 `__version__` 一致；
+   - 在 Windows 上拉取精简 FFmpeg、运行测试、构建，生成 `DiscTag-Windows-x64.zip`（顶层为 `DiscTag/`）和 `DiscTagSetup-v<版本>.exe`；
+   - 在 macOS（Apple Silicon / Intel）上构建并 ad-hoc 签名，生成两个 DMG；
+   - 创建包含以上 4 个资产的**草稿** Release。
+3. 在 GitHub 上核对草稿资产，按以往格式填写发布说明，然后发布。草稿和预发布不会触发应用内更新。
+4. 自动更新要求 Release 资产带有 GitHub 的 `sha256` digest（上传后自动生成），发布后用 `check_for_updates("<旧版本>")` 验证。
+
+本地构建（仅用于调试）：`python scripts/fetch_ffmpeg.py`，`python -m pip install -r requirements-dev.txt`，`python build_app.py` 输出到 `dist/DiscTag`；安装包用 `"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\DiscTag.iss`。
+
+## 许可
+- Mutagen 为 GPL-2.0-or-later，打包后的应用整体须以 GPL 兼容方式分发。
+- 内置 FFmpeg/LAME 为 LGPL-2.1+。第三方声明见 `THIRD_PARTY_NOTICES.md`，许可文本在 `licenses/`，由 `DiscTag.spec` 打包进应用。升级 FFmpeg 时同步更新声明中的版本与源码地址（`tests/test_release.py` 会检查）。
 
 ## 升级 FFmpeg
 1. 修改 `scripts/build_ffmpeg.sh` 中的版本号与 SHA-256，推送到 main（触发 `Build FFmpeg` 工作流）。

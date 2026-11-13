@@ -16,7 +16,7 @@ from PIL import Image, ImageOps
 
 from mutagen import MutagenError
 from mutagen.flac import FLAC, Picture
-from mutagen.id3 import APIC, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, ID3
+from mutagen.id3 import APIC, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 
@@ -141,7 +141,7 @@ def convert_album(
     total = len(sources)
 
     with tempfile.TemporaryDirectory(prefix=".disctag-", dir=directory) as staging:
-        for index, (source, track, destination) in enumerate(zip(sources, album.tracks, destinations), 1):
+        for index, (source, track, destination) in enumerate(zip(sources, album.tracks, destinations, strict=True), 1):
             if cancel is not None and cancel.is_set():
                 result.cancelled = True
                 break
@@ -236,9 +236,9 @@ def _convert_file(
                     break
                 except subprocess.TimeoutExpired:
                     if cancel is not None and cancel.is_set():
-                        raise ConversionCancelled("已取消处理。")
+                        raise ConversionCancelled("已取消处理。") from None
                     if time.monotonic() > deadline:
-                        raise AudioError("FFmpeg 处理超时。")
+                        raise AudioError("FFmpeg 处理超时。") from None
         finally:
             if process.poll() is None:
                 process.kill()

@@ -12,6 +12,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 - 每首曲目左侧均有独立试听控件，播放时显示停止图标并高亮当前行，支持切换曲目、自然停止，并在转换或退出时自动停止。
 - 查询 iTunes 美区、日区、中国香港以及中国台湾曲库，并通过 Apple Music 公开网页检索中国大陆内容，支持全部地区合并检索。
 - 支持 Discogs 实体唱片检索，补充独立发行、再版、地区版本、目录号和高清封面。
+- 导入 WAV 后搜索 iTunes / Apple Music，会自动用本地音轨时长核对排名靠前的候选版本：时长吻合的版本排在最前并标记 ✓，可按时长补出缺曲的版本标记 ≈。
 - 自动下载专辑资料与封面，也可使用本地封面。
 - 一键清除专辑资料并保留已导入 WAV，过期搜索不会覆盖清除后的状态。
 - 启动时后台检查 GitHub 最新 Release，发现更新时显示圆点；Windows 可自动下载并安装更新，macOS 可跳转到发布页。
@@ -19,6 +20,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 - 本地与在线曲目数量不一致时，可按 CD 曲序手动插入缺曲。
 - 根据整张专辑的曲目时长智能对齐，自动标记缺失位置，等待用户按实体 CD 曲目表确认。
 - 支持多首缺曲、曲目编辑、顺序调整、时长差异提醒和修改保护。
+- 处理过程中可随时取消，已完成的曲目保留，未完成的临时文件自动清理。
 - 高 DPI 界面，内置 Windows FFmpeg，无需单独安装。
 
 ## 下载与运行
@@ -78,16 +80,16 @@ Windows 安装器从标准构建目录 `dist/DiscTag` 读取文件。完成上�
 
 ## 测试
 
-安装依赖后运行 `python -m unittest discover -s tests -v`。测试使用临时音频和模拟请求，不访问个人凭据或在线曲库；没有 FFmpeg 时会跳过 FLAC/MP3 转换测试。Windows 与 macOS 的 GitHub Actions 会在推送和 PR 时运行回归测试，macOS 发布构建也会先运行测试。
+安装依赖后运行 `python -m unittest discover -s tests -v`。测试使用临时音频和模拟请求，不访问个人凭据或在线曲库；未设置 `DISCTAG_FFMPEG` 时会跳过真实 FFmpeg 转换测试。Windows 与 macOS 的 GitHub Actions 会在推送和 PR 时拉取精简 FFmpeg，运行 `ruff check .` 和全部回归测试。
 
-## macOS GitHub Actions
+## 发布构建
 
-工作流位于 `.github/workflows/build-macos.yml`，支持手动触发，也会在推送 `v*` 标签时运行：
+推送 `v*` 标签后，`.github/workflows/release.yml` 会在 GitHub Actions 中构建全部平台，并创建草稿 Release：
 
-- `macos-15`：Apple Silicon。
-- `macos-15-intel`：Intel。
+- Windows：安装包 `DiscTagSetup-v<版本>.exe` 与免安装 ZIP。
+- macOS：`macos-15`（Apple Silicon）与 `macos-15-intel`（Intel），各生成一个经过 ad-hoc 签名的 DMG。
 
-每个任务生成一个经过 ad-hoc 签名的 `DiscTag.app`，并上传对应的 DMG 构建产物。
+核对资产并填写发布说明后，在 GitHub 上手动发布。`.github/workflows/build-macos.yml` 仅保留手动触发，用于单独试构建 macOS 版本。
 
 ## 数据来源
 
@@ -98,3 +100,7 @@ Discogs 使用官方 REST API，实体版本、曲目、厂牌、国家和封面
 不同地区的数字发行曲目可能不同，最终标签请以实体 CD 曲目表为准。
 
 音频处理使用 FFmpeg，标签写入使用 Mutagen，图像处理使用 Pillow。
+
+## 第三方许可
+
+发布包内置的 FFmpeg 与 LAME 采用 LGPL-2.1+，标签库 Mutagen 采用 GPL-2.0-or-later。完整声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，许可文本位于 `licenses/` 目录，并随应用一同分发。

@@ -1,10 +1,8 @@
 name: Build macOS
 
+# 正式发布由 release.yml 完成（含 macOS 构建）；此工作流仅保留手动触发，用于单独试构建。
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read

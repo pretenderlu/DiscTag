@@ -1,0 +1,138 @@
+name: Release
+
+# 推送 v* 标签后构建全部平台，并创建草稿 Release。
+# 在 GitHub 上核对资产、补写发布说明后再手动发布；草稿不会触发应用内自动更新。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(python -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('disctag/__init__.py', encoding='utf-8').read()).group(1))")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $version"
+            exit 1
+          fi
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Fetch pinned FFmpeg
+        run: python scripts/fetch_ffmpeg.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run regression tests
+        shell: bash
+        run: DISCTAG_FFMPEG="$PWD/vendor/ffmpeg.exe" python -m unittest discover -s tests -v
+
+      - name: Build DiscTag
+        run: python build_app.py
+
+      - name: Create portable ZIP
+        run: python -c "import shutil; shutil.make_archive('dist/DiscTag-Windows-x64', 'zip', 'dist', 'DiscTag')"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\DiscTag.iss'
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiscTag-Windows
+          path: |
+            dist/DiscTag-Windows-x64.zip
+            dist/installer/DiscTagSetup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            suffix: AppleSilicon
+          - runner: macos-15-intel
+            suffix: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Fetch pinned FFmpeg
+        run: python scripts/fetch_ffmpeg.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run regression tests
+        run: DISCTAG_FFMPEG="$PWD/vendor/ffmpeg" python -m unittest discover -s tests -v
+
+      - name: Build DiscTag.app
+        run: python build_app.py
+
+      - name: Ad-hoc sign application
+        run: |
+          codesign --deep --force --sign - dist/DiscTag.app
+          codesign --verify --deep --strict --verbose=2 dist/DiscTag.app
+
+      - name: Create DMG
+        run: hdiutil create -volname DiscTag -srcfolder dist/DiscTag.app -ov -format UDZO "dist/DiscTag-macOS-${{ matrix.suffix }}.dmg"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiscTag-macOS-${{ matrix.suffix }}
+          path: dist/DiscTag-macOS-${{ matrix.suffix }}.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+  draft-release:
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l packages
+          gh release create "$GITHUB_REF_NAME" packages/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "DiscTag $GITHUB_REF_NAME" \
+            --notes "发布说明待补充。"
