@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import io
 import re
 import threading
 import time
-from difflib import SequenceMatcher
 
 import requests
-from PIL import Image, ImageOps
 
 from . import __version__
+from .catalog_common import fetch_cover, match_score as _match_score
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -110,16 +108,7 @@ class DiscogsClient:
             raise DiscogsError("这张唱片没有可用封面。")
         try:
             self._throttle()
-            response = requests.get(artwork_url, headers=self._headers(""), timeout=self.timeout)
-            response.raise_for_status()
-            if len(response.content) > 25 * 1024 * 1024:
-                raise DiscogsError("封面文件过大。")
-            image = Image.open(io.BytesIO(response.content))
-            image = ImageOps.exif_transpose(image).convert("RGB")
-            image.thumbnail((size, size), Image.Resampling.LANCZOS)
-            output = io.BytesIO()
-            image.save(output, format="JPEG", quality=94, optimize=True)
-            return output.getvalue()
+            return fetch_cover(artwork_url, size, self._headers(""), self.timeout)
         except (requests.RequestException, OSError) as exc:
             raise DiscogsError(f"Discogs 封面下载失败：{exc}") from exc
 
@@ -213,10 +202,3 @@ def _duration_ms(value: str) -> int:
     except ValueError:
         return 0
     return 0
-
-
-def _match_score(entry: AlbumSummary, album: str, artist: str) -> float:
-    album_score = SequenceMatcher(None, entry.title.casefold(), album.casefold()).ratio()
-    artist_score = SequenceMatcher(None, entry.artist.casefold(), artist.casefold()).ratio() if artist and entry.artist else 0.5
-    exact_bonus = 0.25 if entry.title.casefold() == album.casefold() else 0
-    return album_score * 0.72 + artist_score * 0.28 + exact_bonus

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import io
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from difflib import SequenceMatcher
 
 import requests
-from PIL import Image, ImageOps
 
 from . import __version__
 from .apple_music_web import AppleMusicWebClient
+from .catalog_common import fetch_cover, match_score as _match_score
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -156,17 +154,8 @@ class ITunesClient:
         last_error = None
         for url in urls:
             try:
-                response = requests.get(url, headers={"User-Agent": f"DiscTag/{__version__}"}, timeout=self.timeout)
-                response.raise_for_status()
-                if len(response.content) > 25 * 1024 * 1024:
-                    raise ITunesError("封面文件过大。")
-                image = Image.open(io.BytesIO(response.content))
-                image = ImageOps.exif_transpose(image).convert("RGB")
-                image.thumbnail((size, size), Image.Resampling.LANCZOS)
-                output = io.BytesIO()
-                image.save(output, format="JPEG", quality=94, optimize=True)
-                return output.getvalue()
-            except (requests.RequestException, OSError, ITunesError) as exc:
+                return fetch_cover(url, size, {"User-Agent": f"DiscTag/{__version__}"}, self.timeout)
+            except (requests.RequestException, OSError) as exc:
                 last_error = exc
         raise ITunesError(f"封面下载失败：{last_error}")
 
@@ -186,10 +175,3 @@ class ITunesClient:
 
 def _release_date(value: str) -> str:
     return value[:10] if value else ""
-
-
-def _match_score(entry: AlbumSummary, album: str, artist: str) -> float:
-    album_score = SequenceMatcher(None, entry.title.casefold(), album.casefold()).ratio()
-    artist_score = SequenceMatcher(None, entry.artist.casefold(), artist.casefold()).ratio() if artist else 0.5
-    exact_bonus = 0.25 if entry.title.casefold() == album.casefold() else 0
-    return album_score * 0.72 + artist_score * 0.28 + exact_bonus

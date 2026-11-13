@@ -111,6 +111,74 @@ class AudioTests(unittest.TestCase):
         tagged = WAVE(result.converted_files[0])
         self.assertEqual(tagged.tags.getall("APIC")[0].data, cover)
 
+    def test_cancel_before_start_converts_nothing(self):
+        import threading
+
+        cancel = threading.Event()
+        cancel.set()
+        result = convert_album([self.source], self.album, self.root, "wav", cover_data=self.cover(), cancel=cancel)
+        self.assertTrue(result.cancelled)
+        self.assertFalse(result.converted_files)
+        self.assertFalse((result.output_directory / "cover.jpg").exists())
+        self.assertFalse(list(result.output_directory.glob(".disctag-*")))
+
+    def test_cancel_between_tracks_keeps_finished_tracks(self):
+        import threading
+
+        from disctag import audio
+
+        self.album.tracks.append(TrackMetadata("Second", "Artist", 2))
+        second = self.root / "second.wav"
+        write_wav(second)
+        cancel = threading.Event()
+        original = audio._convert_file
+
+        def convert_then_cancel(*args):
+            original(*args)
+            cancel.set()
+
+        with patch("disctag.audio._convert_file", side_effect=convert_then_cancel):
+            result = convert_album([self.source, second], self.album, self.root, "wav", cancel=cancel)
+        self.assertTrue(result.cancelled)
+        self.assertEqual(len(result.converted_files), 1)
+        self.assertFalse(result.failures)
+
+    def test_cancel_kills_running_ffmpeg(self):
+        import subprocess
+        import threading
+        from unittest.mock import Mock
+
+        from disctag.audio import ConversionCancelled, _convert_file
+
+        process = Mock()
+        process.wait.side_effect = [subprocess.TimeoutExpired("ffmpeg", 0.2), 0]
+        process.poll.return_value = None
+        cancel = threading.Event()
+        cancel.set()
+        with patch("disctag.audio.subprocess.Popen", return_value=process):
+            with self.assertRaises(ConversionCancelled):
+                _convert_file("ffmpeg", self.source, self.root / "out.flac", "flac", "320 kbps", cancel)
+        process.kill.assert_called_once()
+
+    def test_ffmpeg_error_message_is_reported(self):
+        from unittest.mock import Mock
+
+        from disctag.audio import _convert_file
+
+        def fake_popen(command, stderr, **kwargs):
+            stderr.write(b"first line\nInvalid data found\n")
+            return Mock(wait=Mock(return_value=1), poll=Mock(return_value=1))
+
+        with patch("disctag.audio.subprocess.Popen", side_effect=fake_popen):
+            with self.assertRaisesRegex(AudioError, "Invalid data found"):
+                _convert_file("ffmpeg", self.source, self.root / "out.flac", "flac", "320 kbps")
+
+    def test_cover_not_written_when_every_track_fails(self):
+        with patch("disctag.audio._tag_wave", side_effect=OSError("tag failed")):
+            result = convert_album([self.source], self.album, self.root, "wav", cover_data=self.cover())
+        self.assertEqual(len(result.failures), 1)
+        self.assertFalse((result.output_directory / "cover.jpg").exists())
+
     def test_tag_failure_preserves_existing_output(self):
         target = output_path(output_directory(self.root, self.album), self.album.tracks[0], "wav")
         write_wav(target, b"\x02\x00")

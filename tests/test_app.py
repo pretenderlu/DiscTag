@@ -333,6 +333,25 @@ class AppTests(unittest.TestCase):
                     self.assertEqual(convert.call_args.args[-2:], expected)
                     a.converting = False
 
+    def test_cancel_conversion_flow(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a.album = self.album("Manual Album")
+        a._save_settings = Mock()
+        with patch("disctag.app.convert_album"):
+            a._convert()
+        self.assertTrue(a.converting)
+        self.assertEqual(a.convert_button.configure.call_args.kwargs["text"], "取消处理")
+        a._cancel_conversion()
+        self.assertTrue(a.cancel_event.is_set())
+        with patch("disctag.app.messagebox") as box:
+            a._conversion_done(ConversionResult(self.root, cancelled=True))
+            box.showinfo.assert_called_once()
+        self.assertFalse(a.converting)
+        self.assertIsNone(a.cancel_event)
+        self.assertEqual(a.convert_button.configure.call_args.kwargs["text"], "开始处理")
+
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo
 

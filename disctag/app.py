@@ -4,6 +4,7 @@ import copy
 import io
 import json
 import os
+import queue
 import subprocess
 import sys
 import tempfile
@@ -102,6 +103,9 @@ class DiscTagApp:
         self.latest_update = None
         self.updating = False
         self.converting = False
+        self.cancel_event: threading.Event | None = None
+        self.conversion_thread: threading.Thread | None = None
+        self._ui_queue: queue.SimpleQueue = queue.SimpleQueue()
         self.icon_click_count = 0
         self.first_icon_click_time = 0.0
         self.easter_egg_dialog = None
@@ -142,6 +146,7 @@ class DiscTagApp:
         self._load_icon()
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
+        self.root.after(50, self._drain_ui_queue)
         self.root.after(300, self._check_for_updates)
         self._reveal()
 
@@ -774,7 +779,7 @@ class DiscTagApp:
         if self.album and self.metadata_dirty:
             replace = messagebox.askyesno(
                 "替换当前专辑资料",
-                "更换 iTunes 专辑会清除当前的手动补曲和曲目修改，是否继续？",
+                "更换专辑会清除当前的手动补曲和曲目修改，是否继续？",
                 parent=self.root,
             )
             if not replace:
@@ -854,7 +859,7 @@ class DiscTagApp:
             messagebox.showwarning("缺少专辑名称", "请先填写专辑名称。", parent=self.root)
             return
         if self.album and self.metadata_dirty:
-            replace = messagebox.askyesno("进入手动模式", "这会覆盖当前的 iTunes 匹配和手动补曲，是否继续？", parent=self.root)
+            replace = messagebox.askyesno("进入手动模式", "这会覆盖当前的在线匹配和手动补曲，是否继续？", parent=self.root)
             if not replace:
                 return
         self._invalidate_metadata_requests()
@@ -1012,7 +1017,7 @@ class DiscTagApp:
         ttk.Label(frame, text="按实体 CD 补充缺失曲目", style="Title.Card.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             frame,
-            text="请查阅 CD 封底或内页的曲目表，确认正确曲序和歌名。\n后续 iTunes 曲目会自动顺移，歌曲名称保持不变。",
+            text="请查阅 CD 封底或内页的曲目表，确认正确曲序和歌名。\n后续在线曲目会自动顺移，歌曲名称保持不变。",
             style="Muted.Card.TLabel",
             justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
@@ -1124,7 +1129,7 @@ class DiscTagApp:
         def delete_manual():
             confirmed = messagebox.askyesno(
                 "删除手动缺曲",
-                "删除后，后续 iTunes 曲目会恢复顺移前的位置。是否继续？",
+                "删除后，后续在线曲目会恢复顺移前的位置。是否继续？",
                 parent=dialog,
             )
             if confirmed and self._delete_manual_track(index):
@@ -1245,7 +1250,7 @@ class DiscTagApp:
             messagebox.showwarning("缺少 WAV", "请先选择包含 WAV 音轨的文件夹。", parent=self.root)
             return
         if not self.album:
-            messagebox.showwarning("缺少专辑资料", "请从 iTunes 选择专辑，或使用手动模式。", parent=self.root)
+            messagebox.showwarning("缺少专辑资料", "请搜索并选择专辑，或使用手动模式。", parent=self.root)
             return
         if len(self.sources) != len(self.album.tracks):
             messagebox.showwarning("曲目数量不一致", "请使用时长匹配、手动插入缺曲、重新选择专辑，或改用手动模式。", parent=self.root)
@@ -1288,20 +1293,38 @@ class DiscTagApp:
         embed_cover, embed_max_size = self._cover_embed_choice()
         self.preview.stop()
         self.converting = True
+        cancel = self.cancel_event = threading.Event()
         self._invalidate_metadata_requests()
-        self.convert_button.configure(state="disabled")
+        self.convert_button.configure(text="取消处理", command=self._cancel_conversion)
         self.clear_button.configure(state="disabled")
         self.progress_var.set(0)
         self.progress.configure(maximum=len(sources))
         self.status_var.set("正在准备处理…")
 
         def progress(current: int, total: int, text: str):
-            self.root.after(0, lambda: self._conversion_progress(current, total, text))
+            self._post(lambda: self._conversion_progress(current, total, text))
 
         def work():
-            return convert_album(sources, album, output_root, output_format, quality, cover, progress, embed_cover, embed_max_size)
+            return convert_album(
+                sources, album, output_root, output_format, quality, cover, progress, embed_cover, embed_max_size,
+                cancel=cancel,
+            )
 
-        self._run_async(work, self._conversion_done, self._conversion_failed)
+        self.conversion_thread = self._run_async(work, self._conversion_done, self._conversion_failed)
+
+    def _cancel_conversion(self) -> None:
+        if self.converting and self.cancel_event is not None and not self.cancel_event.is_set():
+            self.cancel_event.set()
+            self.convert_button.configure(state="disabled")
+            self.status_var.set("正在取消，当前曲目停止后结束…")
+
+    def _finish_conversion(self) -> None:
+        self.converting = False
+        self.cancel_event = None
+        self.conversion_thread = None
+        self.convert_button.configure(text="开始处理", command=self._convert, state="normal")
+        self.search_button.configure(state="normal")
+        self.clear_button.configure(state="normal")
 
     def _conversion_progress(self, current: int, _total: int, text: str) -> None:
         if self.converting:
@@ -1309,11 +1332,17 @@ class DiscTagApp:
             self.status_var.set(text)
 
     def _conversion_done(self, result: ConversionResult) -> None:
-        self.converting = False
-        self.convert_button.configure(state="normal")
-        self.search_button.configure(state="normal")
-        self.clear_button.configure(state="normal")
+        self._finish_conversion()
         self.last_output = result.output_directory
+        if result.cancelled:
+            self.status_var.set(f"已取消 · 已完成 {len(result.converted_files)} 首")
+            messagebox.showinfo(
+                "已取消处理",
+                f"已完成 {len(result.converted_files)} 首，其余曲目未处理。\n\n{result.output_directory}",
+                parent=self.root,
+            )
+            self._save_settings()
+            return
         self.progress_var.set(len(self.sources))
         if result.failures:
             details = "\n".join(f"{failure.source.name}：{failure.message}" for failure in result.failures[:6])
@@ -1325,10 +1354,7 @@ class DiscTagApp:
         self._save_settings()
 
     def _conversion_failed(self, error: Exception) -> None:
-        self.converting = False
-        self.convert_button.configure(state="normal")
-        self.search_button.configure(state="normal")
-        self.clear_button.configure(state="normal")
+        self._finish_conversion()
         self.status_var.set("处理失败")
         messagebox.showerror("处理失败", str(error), parent=self.root)
 
@@ -1449,7 +1475,7 @@ class DiscTagApp:
 
         def work():
             def progress(downloaded: int, total: int):
-                self.root.after(0, lambda: self._update_download_progress(downloaded, total))
+                self._post(lambda: self._update_download_progress(downloaded, total))
 
             return download_update(info, destination, progress)
 
@@ -1493,16 +1519,39 @@ class DiscTagApp:
         elif choice is False and self.latest_update:
             webbrowser.open(self.latest_update.url, new=2)
 
-    def _run_async(self, work, done, failed) -> None:
+    def _run_async(self, work, done, failed) -> threading.Thread:
         def runner():
             try:
                 result = work()
             except Exception as exc:
-                self.root.after(0, lambda error=exc: failed(error))
+                self._post(lambda error=exc: failed(error))
             else:
-                self.root.after(0, lambda: done(result))
+                self._post(lambda: done(result))
 
-        threading.Thread(target=runner, daemon=True).start()
+        thread = threading.Thread(target=runner, daemon=True)
+        thread.start()
+        return thread
+
+    def _post(self, callback) -> None:
+        """Queues a callback for the Tk main thread; Tk itself must only be touched from that thread."""
+        self._ui_queue.put(callback)
+
+    def _drain_ui_queue(self) -> None:
+        try:
+            while True:
+                callback = self._ui_queue.get_nowait()
+                try:
+                    callback()
+                except Exception:
+                    import traceback
+
+                    traceback.print_exc()
+        except queue.Empty:
+            pass
+        try:
+            self.root.after(30, self._drain_ui_queue)
+        except tk.TclError:
+            pass
 
     def _format_changed(self) -> None:
         self.quality_combo.configure(state="readonly" if self.format_var.get() == "mp3" else "disabled")
@@ -1568,6 +1617,11 @@ class DiscTagApp:
     def _close(self) -> None:
         if self.converting and not messagebox.askyesno("处理仍在进行", "现在退出会中断未完成的处理，确定退出吗？", parent=self.root):
             return
+        if self.converting and self.cancel_event is not None:
+            # 让工作线程结束 FFmpeg 并清理临时目录，避免残留进程和 .disctag-* 文件夹。
+            self.cancel_event.set()
+            if self.conversion_thread is not None:
+                self.conversion_thread.join(timeout=5)
         self.preview.stop()
         self._close_easter_egg()
         self._close_update_dialog()

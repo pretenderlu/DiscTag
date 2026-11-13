@@ -106,7 +106,7 @@ def album_info_text(album: AlbumMetadata, region: str) -> str:
     manual_count = sum(track.origin in MANUAL_ORIGINS for track in album.tracks)
     count_text = f"{len(album.tracks)} 首"
     if album.collection_id is not None and manual_count:
-        count_text += f"（{len(album.tracks) - manual_count} 首 iTunes + {manual_count} 首手动）"
+        count_text += f"（{len(album.tracks) - manual_count} 首在线 + {manual_count} 首手动）"
     source = region or "手动模式"
     return f"{source} · {count_text} · {album.genre or '未分类'} · {album.release_date or '日期未知'}"
 

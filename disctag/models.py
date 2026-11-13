@@ -62,3 +62,4 @@ class ConversionResult:
     output_directory: Path
     converted_files: list[Path] = field(default_factory=list)
     failures: list[ConversionFailure] = field(default_factory=list)
+    cancelled: bool = False

@@ -96,8 +96,8 @@ class DiscogsTests(unittest.TestCase):
 
         content = io.BytesIO()
         Image.new("RGB", (16, 16), "red").save(content, "JPEG")
-        response = Mock()
-        response.content = content.getvalue()
+        response = Mock(headers={})
+        response.iter_content.return_value = [content.getvalue()]
         with unittest.mock.patch("disctag.discogs.requests.get", return_value=response) as get:
             DiscogsClient().download_cover("https://img.discogs.example/cover.jpg", 600, "secret")
         self.assertNotIn("Authorization", get.call_args.kwargs["headers"])

@@ -24,7 +24,8 @@ class ITunesCoverTests(unittest.TestCase):
             if len(requested) == 1:
                 response.raise_for_status.side_effect = requests.HTTPError("404")
             else:
-                response.content = jpeg(600)
+                response.headers = {}
+                response.iter_content.return_value = [jpeg(600)]
             return response
 
         client = ITunesClient()
@@ -39,8 +40,8 @@ class ITunesCoverTests(unittest.TestCase):
 
         def fake_get(url, **kwargs):
             requested.append(url)
-            response = Mock()
-            response.content = jpeg(600)
+            response = Mock(headers={})
+            response.iter_content.return_value = [jpeg(600)]
             return response
 
         client = ITunesClient()

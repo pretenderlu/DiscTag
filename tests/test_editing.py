@@ -119,8 +119,8 @@ class InfoTests(unittest.TestCase):
     def test_album_info_text(self):
         record = album(track(), track(origin="manual"), collection_id=5)
         record.genre, record.release_date = "Rock", "2020"
-        self.assertEqual(album_info_text(record, "US"), "US · 2 首（1 首 iTunes + 1 首手动） · Rock · 2020")
-        self.assertEqual(album_info_text(record, ""), "手动模式 · 2 首（1 首 iTunes + 1 首手动） · Rock · 2020")
+        self.assertEqual(album_info_text(record, "US"), "US · 2 首（1 首在线 + 1 首手动） · Rock · 2020")
+        self.assertEqual(album_info_text(record, ""), "手动模式 · 2 首（1 首在线 + 1 首手动） · Rock · 2020")
         plain = album(track())
         self.assertEqual(album_info_text(plain, ""), "手动模式 · 1 首 · 未分类 · 日期未知")
 

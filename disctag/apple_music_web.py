@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-from difflib import SequenceMatcher
 
 import requests
 
 from . import __version__
+from .catalog_common import match_score as _match_score
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -152,10 +152,3 @@ def _artwork_url(item: dict) -> str:
     artwork = item.get("artwork") or {}
     url = artwork.get("dictionary", {}).get("url", "") if isinstance(artwork, dict) else ""
     return url.replace("{w}", "100").replace("{h}", "100").replace("{f}", "jpg")
-
-
-def _match_score(entry: AlbumSummary, album: str, artist: str) -> float:
-    album_score = SequenceMatcher(None, entry.title.casefold(), album.casefold()).ratio()
-    artist_score = SequenceMatcher(None, entry.artist.casefold(), artist.casefold()).ratio() if artist else 0.5
-    exact_bonus = 0.25 if entry.title.casefold() == album.casefold() else 0
-    return album_score * 0.72 + artist_score * 0.28 + exact_bonus

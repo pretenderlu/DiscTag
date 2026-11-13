@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -23,6 +25,14 @@ from .models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMet
 
 class AudioError(RuntimeError):
     pass
+
+
+class ConversionCancelled(AudioError):
+    pass
+
+
+# 单首曲目的 FFmpeg 处理上限，防止异常文件导致进程永久挂起。
+FFMPEG_TIMEOUT_SECONDS = 30 * 60
 
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -105,6 +115,8 @@ def convert_album(
     progress: ProgressCallback | None = None,
     embed_cover: bool = True,
     embed_max_size: int | None = None,
+    *,
+    cancel: threading.Event | None = None,
 ) -> ConversionResult:
     if len(sources) != len(album.tracks):
         raise AudioError("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。")
@@ -130,12 +142,15 @@ def convert_album(
 
     with tempfile.TemporaryDirectory(prefix=".disctag-", dir=directory) as staging:
         for index, (source, track, destination) in enumerate(zip(sources, album.tracks, destinations), 1):
+            if cancel is not None and cancel.is_set():
+                result.cancelled = True
+                break
             if progress:
                 action = "正在整理" if output_format == "wav" else "正在转换"
                 progress(index - 1, total, f"{action}：{track.title}")
             temporary = Path(staging) / destination.name
             try:
-                _convert_file(ffmpeg, source, temporary, output_format, mp3_quality)
+                _convert_file(ffmpeg, source, temporary, output_format, mp3_quality, cancel)
                 if output_format == "flac":
                     _tag_flac(temporary, album, track, embedded)
                 elif output_format == "mp3":
@@ -144,12 +159,15 @@ def convert_album(
                     _tag_wave(temporary, album, track, embedded)
                 os.replace(temporary, destination)
                 result.converted_files.append(destination)
+            except ConversionCancelled:
+                result.cancelled = True
+                break
             except Exception as exc:
                 result.failures.append(ConversionFailure(source=source, message=str(exc)))
             if progress:
                 progress(index, total, f"已完成 {index}/{total}")
 
-        if cover_data:
+        if cover_data and result.converted_files:
             temporary_cover = Path(staging) / "cover.jpg"
             temporary_cover.write_bytes(cover_data)
             os.replace(temporary_cover, directory / "cover.jpg")
@@ -169,7 +187,14 @@ def embedded_cover(cover_data: bytes, max_size: int | None) -> bytes:
     return output.getvalue()
 
 
-def _convert_file(ffmpeg: str | None, source: Path, destination: Path, output_format: str, mp3_quality: str) -> None:
+def _convert_file(
+    ffmpeg: str | None,
+    source: Path,
+    destination: Path,
+    output_format: str,
+    mp3_quality: str,
+    cancel: threading.Event | None = None,
+) -> None:
     if output_format == "wav":
         shutil.copyfile(source, destination)
         return
@@ -197,13 +222,31 @@ def _convert_file(ffmpeg: str | None, source: Path, destination: Path, output_fo
     else:
         command.extend(["-b:a", "320k"])
     command.append(str(destination))
-    kwargs = {"capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
+    kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    completed = subprocess.run(command, **kwargs)
-    if completed.returncode != 0:
-        message = completed.stderr.strip().splitlines()
-        raise AudioError(message[-1] if message else f"FFmpeg 退出代码：{completed.returncode}")
+    # stderr 写入临时文件而非管道，轮询等待时不会因缓冲区写满而死锁。
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(command, stderr=errors, **kwargs)
+        deadline = time.monotonic() + FFMPEG_TIMEOUT_SECONDS
+        try:
+            while True:
+                try:
+                    returncode = process.wait(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    if cancel is not None and cancel.is_set():
+                        raise ConversionCancelled("已取消处理。")
+                    if time.monotonic() > deadline:
+                        raise AudioError("FFmpeg 处理超时。")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        if returncode != 0:
+            errors.seek(0)
+            message = errors.read().decode("utf-8", "replace").strip().splitlines()
+            raise AudioError(message[-1] if message else f"FFmpeg 退出代码：{returncode}")
 
 
 def _tag_flac(path: Path, album: AlbumMetadata, track: TrackMetadata, cover_data: bytes | None) -> None:
