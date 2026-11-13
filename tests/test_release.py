@@ -15,6 +15,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
         self.assertEqual(set(re.findall(r"DiscTagSetup-v([\d.]+)\.exe", readme)), {__version__})
 
     def test_license_notices_are_present(self):
+        self.assertTrue((PROJECT / "LICENSE").is_file())
         self.assertTrue((PROJECT / "THIRD_PARTY_NOTICES.md").is_file())
         for name in ("LGPL-2.1.txt", "GPL-2.0.txt"):
             self.assertTrue((PROJECT / "licenses" / name).is_file(), name)

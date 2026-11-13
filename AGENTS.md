@@ -22,6 +22,7 @@
 本地构建（仅用于调试）：`python scripts/fetch_ffmpeg.py`，`python -m pip install -r requirements-dev.txt`，`python build_app.py` 输出到 `dist/DiscTag`；安装包用 `"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\DiscTag.iss`。
 
 ## 许可
+- 项目本身为 GPL-3.0-or-later（`LICENSE`）。
 - Mutagen 为 GPL-2.0-or-later，打包后的应用整体须以 GPL 兼容方式分发。
 - 内置 FFmpeg/LAME 为 LGPL-2.1+。第三方声明见 `THIRD_PARTY_NOTICES.md`，许可文本在 `licenses/`，由 `DiscTag.spec` 打包进应用。升级 FFmpeg 时同步更新声明中的版本与源码地址（`tests/test_release.py` 会检查）。
 

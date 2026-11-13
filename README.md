@@ -101,6 +101,12 @@ Discogs 使用官方 REST API，实体版本、曲目、厂牌、国家和封面
 
 音频处理使用 FFmpeg，标签写入使用 Mutagen，图像处理使用 Pillow。
 
+## 许可证
+
+Copyright (C) 2026 pretenderlu
+
+DiscTag 以 [GNU General Public License v3.0 或更高版本](LICENSE)（GPL-3.0-or-later）发布。你可以在该许可条款下自由使用、修改和再分发本软件；本软件不提供任何担保。
+
 ## 第三方许可
 
 发布包内置的 FFmpeg 与 LAME 采用 LGPL-2.1+，标签库 Mutagen 采用 GPL-2.0-or-later。完整声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，许可文本位于 `licenses/` 目录，并随应用一同分发。
