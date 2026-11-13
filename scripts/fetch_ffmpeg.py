@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import sys
 import tempfile
 from pathlib import Path
 
@@ -27,6 +28,9 @@ def platform_key() -> str:
 
 
 def main() -> None:
+    # Windows 控制台默认可能是 cp1252，直接打印中文会抛 UnicodeEncodeError。
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=("windows-x64", "macos-AppleSilicon", "macos-Intel"))
     args = parser.parse_args()
