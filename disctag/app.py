@@ -45,6 +45,7 @@ from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, renumber_tracks
 from .playback import AudioPreview
+from .ranking import candidates_to_verify, rank_results, result_key, verify_candidates
 from .rounded_panel import RoundedPanel
 from .rounded_style import apply_rounded_styles
 from .updates import download_update, check_for_updates
@@ -92,6 +93,8 @@ class DiscTagApp:
         self.sources: list[Path] = []
         self.source_durations: dict[Path, float | None] = {}
         self.results: list[AlbumSummary] = []
+        self.result_markers: dict[tuple, str] = {}
+        self.album_cache: dict[tuple, AlbumMetadata] = {}
         self.album: AlbumMetadata | None = None
         self.album_region = ""
         self.metadata_dirty = False
@@ -440,7 +443,7 @@ class DiscTagApp:
         self.results_tree.heading("region", text="地区")
         self.results_tree.heading("album", text="专辑")
         self.results_tree.heading("artist", text="歌手")
-        self.results_tree.column("region", width=self._px(48), anchor="center", stretch=False)
+        self.results_tree.column("region", width=self._px(60), anchor="center", stretch=False)
         self.results_tree.column("album", width=self._px(150))
         self.results_tree.column("artist", width=self._px(115))
         result_scroll = ttk.Scrollbar(results_frame, orient="vertical", command=self.results_tree.yview)
@@ -672,6 +675,13 @@ class DiscTagApp:
         self._invalidate_metadata_requests()
         self.sources = files
         self.source_durations = {path: wav_duration(path) for path in files}
+        if self.result_markers:
+            # 时长标记针对上一批 WAV，换了音轨后不再成立。
+            self.result_markers = {}
+            selection = self.results_tree.selection()
+            self._show_results()
+            if selection:
+                self.results_tree.selection_set(selection)
         self.album = None
         self.album_region = ""
         self.metadata_dirty = False
@@ -700,6 +710,8 @@ class DiscTagApp:
         for variable in (self.album_var, self.artist_var, self.album_artist_var, self.date_var, self.genre_var):
             variable.set("")
         self.results = []
+        self.result_markers = {}
+        self.album_cache = {}
         self.results_tree.delete(*self.results_tree.get_children())
         self.album = None
         self.album_region = ""
@@ -739,21 +751,41 @@ class DiscTagApp:
         else:
             self.status_var.set(f"正在查询 {ITUNES_REGIONS[region]} iTunes…")
 
+        local_ms = [
+            duration * 1000 if (duration := self._source_duration(path)) is not None else None
+            for path in self.sources
+        ]
+
         def work():
             if source == "Discogs":
-                return self.discogs_client.search_albums(album, artist, token)
-            return self.client.search_albums(album, artist, region)
+                # Discogs 有请求频率限制，不逐个拉取详情核对时长。
+                return self.discogs_client.search_albums(album, artist, token), {}, {}
+            results = self.client.search_albums(album, artist, region)
+            if not local_ms:
+                return results, {}, {}
+            self._post(lambda: request_id == self.search_request_id
+                       and self.status_var.set("正在按本地 WAV 时长核对候选版本…"))
+            candidates = candidates_to_verify(results, len(local_ms))
+            fits, albums = verify_candidates(
+                candidates, local_ms, lambda entry: self.client.get_album(entry.collection_id, entry.country)
+            )
+            return rank_results(results, fits, len(local_ms)), fits, albums
 
-        def done(results: list[AlbumSummary]):
+        def done(payload):
             if request_id != self.search_request_id:
                 return
+            results, fits, albums = payload
             self.search_button.configure(state="normal")
             self.results = results
-            self.results_tree.delete(*self.results_tree.get_children())
-            for index, entry in enumerate(results):
-                self.results_tree.insert("", "end", iid=str(index), values=(entry.country, entry.title, entry.artist))
+            self.album_cache = albums
+            self.result_markers = {key: fit.marker for key, fit in fits.items() if fit.marker}
+            self._show_results()
             warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source != "Discogs" and self.client.last_warnings else ""
-            self.status_var.set(f"找到 {len(results)} 个专辑版本{warning}" if results else "没有找到专辑，请更换关键词或地区")
+            exact = sum(marker == "✓" for marker in self.result_markers.values())
+            fit_text = f"；{exact} 个版本与本地时长吻合（✓）" if exact else ""
+            if not exact and any(marker == "≈" for marker in self.result_markers.values()):
+                fit_text = "；≈ 表示可按时长补出缺曲"
+            self.status_var.set(f"找到 {len(results)} 个专辑版本{fit_text}{warning}" if results else "没有找到专辑，请更换关键词或地区")
             if results:
                 self.results_tree.selection_set("0")
                 self.results_tree.focus("0")
@@ -761,6 +793,13 @@ class DiscTagApp:
                 messagebox.showwarning("地区查询失败", "\n".join(self.client.last_warnings), parent=self.root)
 
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
+
+    def _show_results(self) -> None:
+        self.results_tree.delete(*self.results_tree.get_children())
+        for index, entry in enumerate(self.results):
+            marker = self.result_markers.get(result_key(entry), "")
+            region_text = f"{marker} {entry.country}" if marker else entry.country
+            self.results_tree.insert("", "end", iid=str(index), values=(region_text, entry.title, entry.artist))
 
     def _search_failed(self, error: Exception, request_id: int) -> None:
         if request_id != self.search_request_id:
@@ -786,6 +825,7 @@ class DiscTagApp:
                 return
         token = self.discogs_token_var.get().strip()
         cover_size = self._cover_size_value()
+        cached = self.album_cache.get(result_key(summary))
         self.album_request_id += 1
         request_id = self.album_request_id
         self.cover_request_id += 1
@@ -793,7 +833,9 @@ class DiscTagApp:
         self.status_var.set(f"正在载入 {summary.title}（{summary.country}）…")
 
         def work():
-            if summary.source == "discogs":
+            if cached is not None:
+                album = copy.deepcopy(cached)
+            elif summary.source == "discogs":
                 album = self.discogs_client.get_album(summary.collection_id, token)
             else:
                 album = self.client.get_album(summary.collection_id, summary.country)
@@ -1578,6 +1620,8 @@ class DiscTagApp:
         if _event is not None:
             self._invalidate_metadata_requests()
             self.results = []
+            self.result_markers = {}
+            self.album_cache = {}
             self.results_tree.delete(*self.results_tree.get_children())
             self.album = None
             self.album_region = ""

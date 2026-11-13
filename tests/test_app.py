@@ -59,6 +59,8 @@ class AppTests(unittest.TestCase):
         a.cjk_font = "Microsoft YaHei UI"
         a.latest_release_url = "https://github.com/pretenderlu/DiscTag/releases/latest"
         a.results = []
+        a.result_markers = {}
+        a.album_cache = {}
         a.client = Mock(last_warnings=[])
         a.discogs_client = Mock()
         for name in ("_save_discogs_token", "_refresh_tracks", "_show_cover", "_update_album_info"):
@@ -351,6 +353,36 @@ class AppTests(unittest.TestCase):
         self.assertFalse(a.converting)
         self.assertIsNone(a.cancel_event)
         self.assertEqual(a.convert_button.configure.call_args.kwargs["text"], "开始处理")
+
+    def test_search_ranks_by_local_duration_and_caches_album(self):
+        a = self.app
+        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.source_durations = {a.sources[0]: 200.0, a.sources[1]: 180.0}
+        a._post = lambda callback: None
+        wrong = AlbumSummary(1, "Album", "Artist", track_count=2, country="US")
+        right = AlbumSummary(2, "Album", "Artist", track_count=2, country="JP")
+        a.client.search_albums.return_value = [wrong, right]
+
+        def get_album(collection_id, country):
+            seconds = (200, 300) if collection_id == 1 else (201, 179)
+            return AlbumMetadata("Album", "Artist", "Artist", collection_id=collection_id, tracks=[
+                TrackMetadata(f"T{i}", "Artist", i, duration_ms=s * 1000) for i, s in enumerate(seconds, 1)])
+
+        a.client.get_album.side_effect = get_album
+        a._search()
+        work, done, _ = self.jobs[-1]
+        done(work())
+        self.assertEqual([entry.collection_id for entry in a.results], [2, 1])
+        self.assertEqual(a.results_tree.insert.call_args_list[0].kwargs["values"][0], "✓ JP")
+        self.assertIn("1 个版本与本地时长吻合", a.status_var.get())
+
+        a.client.get_album.reset_mock()
+        a.results_tree.selection.return_value = ("0",)
+        a._album_selected()
+        work, _, _ = self.jobs[-1]
+        album, _, _ = work()
+        a.client.get_album.assert_not_called()
+        self.assertEqual(album.collection_id, 2)
 
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo
