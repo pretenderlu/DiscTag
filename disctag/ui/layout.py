@@ -91,7 +91,8 @@ class LayoutMixin:
         search_row = ttk.Frame(left, style="Card.TFrame")
         search_row.pack(fill="x", pady=(0, 8))
         for column in range(3):
-            search_row.columnconfigure(column, weight=1, uniform="search-actions")
+            # 搜索按钮的文字随曲库来源变化（如“搜索 MusicBrainz”），给它更宽的一列。
+            search_row.columnconfigure(column, weight=4 if column == 0 else 3, uniform="search-actions")
         self.search_button = ttk.Button(search_row, text="搜索 iTunes", style="Accent.TButton", command=self._search)
         self.search_button.grid(row=0, column=0, sticky="ew", padx=4)
         self.manual_button = ttk.Button(search_row, text="手动模式", command=self._manual_mode)
@@ -132,7 +133,8 @@ class LayoutMixin:
             justify="left",
             wraplength=self._px(360),
         )
-        self.region_hint_label.pack(anchor="w", pady=(10, 0))
+        # 先于结果列表占位：窗口较矮时由可滚动的结果列表收缩，提示文字不被裁掉。
+        self.region_hint_label.pack(side="bottom", anchor="w", pady=(10, 0), before=results_panel)
 
         album_top = ttk.Frame(right, style="Card.TFrame")
         album_top.pack(fill="x", pady=(0, 12))

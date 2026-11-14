@@ -163,7 +163,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         minimum_width = min(self._px(1179), int(screen_width * 0.96))
         minimum_height = min(self._px(880), int(screen_height * 0.94))
         width = max(minimum_width, min(self._px(1440), int(screen_width * 0.92)))
-        height = max(minimum_height, min(self._px(1000), int(screen_height * 0.92)))
+        height = max(minimum_height, min(self._px(1100), int(screen_height * 0.92)))
         self.root.minsize(minimum_width, minimum_height)
         x = max(0, (screen_width - width) // 2)
         y = max(0, (screen_height - height) // 2)

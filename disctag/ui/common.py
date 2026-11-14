@@ -25,7 +25,7 @@ SOURCE_MUSICBRAINZ = "MusicBrainz"
 SOURCE_HINTS = {
     SOURCE_ITUNES: "全部地区：美国、日本、中国大陆、中国香港、中国台湾。\n不同地区的专辑版本会分别保留。",
     SOURCE_DISCOGS: "Discogs 收录实体唱片的地区版本、再版与目录号。\n需要个人令牌，请求频率受限。",
-    SOURCE_MUSICBRAINZ: "已导入 WAV 时会先按音轨时长识别光盘（TOC），可不填专辑名。\n✓ 表示与本地音轨吻合；数据来自 MusicBrainz 与 Cover Art Archive。",
+    SOURCE_MUSICBRAINZ: "导入 WAV 后可不填专辑名，按音轨时长识别光盘。\n✓ 表示该版本与本地音轨时长吻合。",
 }
 
 
