@@ -12,13 +12,12 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from PIL import Image, ImageOps
-
 from mutagen import MutagenError
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
+from PIL import Image, ImageOps
 
 from .models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMetadata, renumber_tracks
 

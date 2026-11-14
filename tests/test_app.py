@@ -94,7 +94,7 @@ class AppTests(unittest.TestCase):
         target = output_directory(self.root, a.album) / "01 - Song.wav"
         target.parent.mkdir(parents=True)
         target.write_bytes(b"existing")
-        with patch("disctag.app.messagebox.askyesno", return_value=False) as ask:
+        with patch("disctag.ui.processing.messagebox.askyesno", return_value=False) as ask:
             a._convert()
         ask.assert_called_once()
         self.assertFalse(self.jobs)
@@ -108,7 +108,7 @@ class AppTests(unittest.TestCase):
         a.metadata_source_var.set("Discogs")
         a._metadata_source_changed(object())
         a.search_button.configure.assert_called_with(state="normal")
-        with patch("disctag.app.messagebox.showerror") as error:
+        with patch("disctag.ui.catalog.messagebox.showerror") as error:
             done([AlbumSummary(1, "Old", "Artist")])
             failed(RuntimeError("old request"))
         self.assertFalse(a.results)
@@ -126,7 +126,7 @@ class AppTests(unittest.TestCase):
     def test_manual_mode_invalidates_pending_album(self):
         _, done, failed = self.select_album()
         self.app._manual_mode()
-        with patch("disctag.app.messagebox.showerror") as error:
+        with patch("disctag.ui.catalog.messagebox.showerror") as error:
             done((self.album(), None, None))
             failed(RuntimeError("old request"))
         self.assertEqual(self.app.album.title, "Manual Album")
@@ -137,7 +137,7 @@ class AppTests(unittest.TestCase):
         _, done, _ = self.select_album()
         source = self.root / "new.wav"
         source.touch()
-        with patch("disctag.app.filedialog.askdirectory", return_value=str(self.root)):
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(self.root)):
             self.app._import_wav()
         done((self.album(), None, None))
         self.assertIsNone(self.app.album)
@@ -221,8 +221,8 @@ class AppTests(unittest.TestCase):
         directory.mkdir()
         for name in ("01.wav", "02.wav"):
             (directory / name).write_bytes(b"dummy")
-        with patch("disctag.app.filedialog.askdirectory", return_value=str(directory)), \
-                patch("disctag.app.wav_duration", side_effect=lambda path: 1.0) as duration:
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(directory)), \
+                patch("disctag.ui.tracks.wav_duration", side_effect=lambda path: 1.0) as duration:
             a._import_wav()
             self.assertEqual(duration.call_count, 2)
             self.assertEqual(a._source_duration(a.sources[0]), 1.0)
@@ -231,7 +231,7 @@ class AppTests(unittest.TestCase):
     def test_source_duration_reads_uncached_path_once(self):
         a = self.app
         path = self.root / "other.wav"
-        with patch("disctag.app.wav_duration", return_value=2.5) as duration:
+        with patch("disctag.ui.tracks.wav_duration", return_value=2.5) as duration:
             self.assertEqual(a._source_duration(path), 2.5)
             self.assertEqual(a._source_duration(path), 2.5)
             duration.assert_called_once_with(path)
@@ -245,7 +245,7 @@ class AppTests(unittest.TestCase):
         cover = self.root / "cover.jpg"
         Image.new("RGB", (2000, 2000), "blue").save(cover, "JPEG")
         a.cover_size_var.set("600 × 600")
-        with patch("disctag.app.filedialog.askopenfilename", return_value=str(cover)):
+        with patch("disctag.ui.cover.filedialog.askopenfilename", return_value=str(cover)):
             a._choose_cover()
         self.assertEqual(Image.open(io.BytesIO(a.cover_data)).size, (600, 600))
         self.assertTrue(a.cover_is_local)
@@ -269,7 +269,7 @@ class AppTests(unittest.TestCase):
         directory.mkdir(parents=True)
         (directory / "cover.jpg").write_bytes(b"old")
         jobs_before = len(self.jobs)
-        with patch("disctag.app.messagebox.askyesno", return_value=False) as ask:
+        with patch("disctag.ui.processing.messagebox.askyesno", return_value=False) as ask:
             a._convert()
         ask.assert_called_once()
         self.assertEqual(len(self.jobs), jobs_before)
@@ -322,7 +322,7 @@ class AppTests(unittest.TestCase):
             apply_style.assert_called_once_with(root, "#000000")
 
     def test_cover_embed_helpers_round_trip(self):
-        from disctag.app import _cover_embed_label, _cover_embed_labels, _cover_embed_value
+        from disctag.ui.common import _cover_embed_label, _cover_embed_labels, _cover_embed_value
 
         self.assertEqual(_cover_embed_labels(),
                          ["不嵌入", "500 × 500", "800 × 800", "1000 × 1000", "同 cover.jpg"])
@@ -337,7 +337,7 @@ class AppTests(unittest.TestCase):
         for label, expected in (("500 × 500", (True, 500)), ("不嵌入", (False, None)), ("同 cover.jpg", (True, None))):
             with self.subTest(label=label):
                 a.cover_embed_var.set(label)
-                with patch("disctag.app.convert_album") as convert:
+                with patch("disctag.ui.processing.convert_album") as convert:
                     a._convert()
                     convert.assert_not_called()
                     work, _, _ = self.jobs[-1]
@@ -358,7 +358,7 @@ class AppTests(unittest.TestCase):
         a._cancel_conversion()
         self.assertTrue(a.cancel_event.is_set())
         _, done, _ = self.jobs[-1]
-        with patch("disctag.app.messagebox") as box:
+        with patch("disctag.ui.processing.messagebox") as box:
             done(ConversionResult(self.root, cancelled=True))
             box.showinfo.assert_called_once()
         self.assertFalse(a.converting)
@@ -384,7 +384,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual([job.title for job in a.job_queue.jobs], ["First", "Second (edited)"])
         a.sources, a.album = [], None
         a._convert()
-        with patch("disctag.app.messagebox") as box:
+        with patch("disctag.ui.processing.messagebox") as box:
             for expected in ("First", "Second (edited)"):
                 self.assertEqual(a.current_job.title, expected)
                 _, done, _ = self.jobs[-1]
@@ -405,7 +405,7 @@ class AppTests(unittest.TestCase):
         a._convert()
         a._cancel_conversion()
         _, done, _ = self.jobs[-1]
-        with patch("disctag.app.messagebox"):
+        with patch("disctag.ui.processing.messagebox"):
             done(ConversionResult(self.root, cancelled=True))
         self.assertEqual([job.status for job in a.job_queue.jobs], [CANCELLED, PENDING])
         self.assertFalse(a.converting)
@@ -423,7 +423,7 @@ class AppTests(unittest.TestCase):
         _, _, failed = self.jobs[-1]
         failed(RuntimeError("disk full"))
         _, done, _ = self.jobs[-1]
-        with patch("disctag.app.messagebox") as box:
+        with patch("disctag.ui.processing.messagebox") as box:
             done(ConversionResult(self.root, converted_files=[self.root / "x.flac"]))
             box.showwarning.assert_called_once()
         self.assertEqual(a.job_queue.jobs[0].message, "disk full")
@@ -432,7 +432,7 @@ class AppTests(unittest.TestCase):
         a = self.app
         self.queue_album("one", "First")
         a.album = None
-        with patch("disctag.app.messagebox.showwarning") as warning:
+        with patch("disctag.ui.processing.messagebox.showwarning") as warning:
             a._convert()
         warning.assert_called_once()
         self.assertFalse(a.converting)
@@ -494,7 +494,7 @@ class AppTests(unittest.TestCase):
         a.metadata_source_var.set("MusicBrainz")
         a.album_var.set("")
         a.sources = []
-        with patch("disctag.app.messagebox.showwarning") as warning:
+        with patch("disctag.ui.catalog.messagebox.showwarning") as warning:
             a._search()
         warning.assert_called_once()
         self.assertEqual(self.jobs, [])
@@ -521,12 +521,12 @@ class AppTests(unittest.TestCase):
         toplevel.winfo_width.return_value = 400
         toplevel.winfo_height.return_value = 300
         toplevel.winfo_exists.return_value = True
-        with patch("disctag.app.tk.Toplevel", return_value=toplevel) as toplevel_class, \
-                patch("disctag.app.tk.Text") as text, \
-                patch("disctag.app.ttk.Frame"), \
-                patch("disctag.app.ttk.Label"), \
-                patch("disctag.app.ttk.Scrollbar"), \
-                patch("disctag.app.ttk.Button") as button:
+        with patch("disctag.ui.updates.tk.Toplevel", return_value=toplevel) as toplevel_class, \
+                patch("disctag.ui.updates.tk.Text") as text, \
+                patch("disctag.ui.updates.ttk.Frame"), \
+                patch("disctag.ui.updates.ttk.Label"), \
+                patch("disctag.ui.updates.ttk.Scrollbar"), \
+                patch("disctag.ui.updates.ttk.Button") as button:
             a._show_update_dialog(info)
         return toplevel_class, toplevel, text, button
 
@@ -540,7 +540,7 @@ class AppTests(unittest.TestCase):
         a = self.app
         a.latest_update = self.update_info()
         a._show_update_dialog = Mock()
-        with patch("disctag.app.sys") as app_sys, patch("disctag.app.webbrowser") as browser:
+        with patch("disctag.ui.updates.sys") as app_sys, patch("disctag.ui.updates.webbrowser") as browser:
             app_sys.platform = "win32"
             a._open_latest_release()
         a._show_update_dialog.assert_called_once_with(a.latest_update)
@@ -552,8 +552,8 @@ class AppTests(unittest.TestCase):
         a.latest_release_url = a.latest_update.url
         for platform in ("darwin", "linux"):
             with self.subTest(platform=platform), \
-                    patch("disctag.app.sys") as app_sys, \
-                    patch("disctag.app.webbrowser") as browser:
+                    patch("disctag.ui.updates.sys") as app_sys, \
+                    patch("disctag.ui.updates.webbrowser") as browser:
                 app_sys.platform = platform
                 a._open_latest_release()
             browser.open.assert_called_once_with(a.latest_update.url, new=2)
@@ -571,7 +571,7 @@ class AppTests(unittest.TestCase):
         a.converting = True
         a.latest_update = self.update_info()
         a._show_update_dialog = Mock()
-        with patch("disctag.app.messagebox.showwarning") as warning:
+        with patch("disctag.ui.updates.messagebox.showwarning") as warning:
             a._start_update_download()
         warning.assert_called_once()
         a._show_update_dialog.assert_not_called()
@@ -590,7 +590,7 @@ class AppTests(unittest.TestCase):
         info = self.update_info()
         a._begin_update_download = Mock()
         _, toplevel, _, button = self.show_update_dialog(info)
-        with patch("disctag.app.webbrowser") as browser:
+        with patch("disctag.ui.updates.webbrowser") as browser:
             self.dialog_button(button, "否")()
         browser.open.assert_not_called()
         a._begin_update_download.assert_not_called()
@@ -609,7 +609,7 @@ class AppTests(unittest.TestCase):
         toplevel_class, toplevel, _, _ = self.show_update_dialog(info)
         toplevel_class.assert_called_once()
         self.assertIs(a.update_dialog, toplevel)
-        with patch("disctag.app.tk.Toplevel") as again:
+        with patch("disctag.ui.updates.tk.Toplevel") as again:
             a._show_update_dialog(info)
         again.assert_not_called()
         self.assertIs(a.update_dialog, toplevel)
@@ -627,8 +627,8 @@ class AppTests(unittest.TestCase):
         a.latest_update = self.update_info()
         a.updating = True
         a._start_update_download = Mock()
-        with patch("disctag.app.messagebox.askyesnocancel", return_value=True), \
-                patch("disctag.app.webbrowser") as browser:
+        with patch("disctag.ui.updates.messagebox.askyesnocancel", return_value=True), \
+                patch("disctag.ui.updates.webbrowser") as browser:
             a._update_failed(RuntimeError("boom"))
         a._start_update_download.assert_called_once_with()
         browser.open.assert_not_called()
@@ -640,8 +640,8 @@ class AppTests(unittest.TestCase):
         a.latest_update = self.update_info()
         a.updating = True
         a._start_update_download = Mock()
-        with patch("disctag.app.messagebox.askyesnocancel", return_value=False), \
-                patch("disctag.app.webbrowser") as browser:
+        with patch("disctag.ui.updates.messagebox.askyesnocancel", return_value=False), \
+                patch("disctag.ui.updates.webbrowser") as browser:
             a._update_failed(RuntimeError("boom"))
         browser.open.assert_called_once_with(a.latest_update.url, new=2)
         a._start_update_download.assert_not_called()
@@ -652,8 +652,8 @@ class AppTests(unittest.TestCase):
         a.latest_update = self.update_info()
         a.updating = True
         a._start_update_download = Mock()
-        with patch("disctag.app.messagebox.askyesnocancel", return_value=None), \
-                patch("disctag.app.webbrowser") as browser:
+        with patch("disctag.ui.updates.messagebox.askyesnocancel", return_value=None), \
+                patch("disctag.ui.updates.webbrowser") as browser:
             a._update_failed(RuntimeError("boom"))
         browser.open.assert_not_called()
         a._start_update_download.assert_not_called()

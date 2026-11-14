@@ -5,6 +5,12 @@
 - 设置 `DISCTAG_FFMPEG=vendor/ffmpeg.exe`（macOS 为 `vendor/ffmpeg`）可同时运行真实 FFmpeg 转换测试；CI 会自动这样做。
 - `ruff check .`（规则见 `ruff.toml`，只检查真实错误）。
 
+## 代码结构
+- 无界面逻辑：`audio`（转换与标签）、`matching` / `ranking`（时长对齐与结果排序）、`editing`（曲目编辑）、`jobs`（处理队列）、`models`。
+- 曲库客户端：`itunes`、`apple_music_web`、`discogs`、`musicbrainz`，公共的评分与封面下载在 `catalog_common`。
+- 界面：`app.py` 的 `DiscTagApp` 只负责启动、线程调度（`_run_async` / `_post`，后台线程不得直接调用 Tk）、设置与退出；具体功能按职责拆成 `disctag/ui/` 下的 mixin：`layout`、`theme`、`catalog`、`cover`、`tracks`、`processing`、`updates`、`easter_egg`，共享常量与辅助函数在 `ui/common.py`。
+- 测试中 mock 界面模块时，patch 目标要指向实际使用该名称的模块，例如 `disctag.ui.processing.convert_album`。
+
 ## 版本号
 - 唯一来源：`disctag/__init__.py` 的 `__version__`。`DiscTag.spec`、`installer/DiscTag.iss` 和各处 User-Agent 都从这里读取。
 - README 中的版本文字（"当前版本"和安装包文件名）需要手动同步；`tests/test_release.py` 会在不一致时失败。

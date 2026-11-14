@@ -7,7 +7,8 @@ import time
 import requests
 
 from . import __version__
-from .catalog_common import fetch_cover, match_score as _match_score
+from .catalog_common import fetch_cover
+from .catalog_common import match_score as _match_score
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 

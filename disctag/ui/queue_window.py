@@ -5,10 +5,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
-from .jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING
+from ..jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING
 
 if TYPE_CHECKING:
-    from .app import DiscTagApp
+    from ..app import DiscTagApp
 
 STATUS_TAGS = {RUNNING: "running", DONE: "done", PARTIAL: "problem", FAILED: "problem", CANCELLED: "cancelled"}
 
