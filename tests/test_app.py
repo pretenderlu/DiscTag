@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from disctag.app import DiscTagApp
-from disctag.jobs import CANCELLED, DONE, PENDING, JobQueue
 from disctag.audio import output_directory
+from disctag.jobs import CANCELLED, DONE, PENDING, JobQueue
 from disctag.models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -37,6 +37,10 @@ class AppTests(unittest.TestCase):
         a.output_var = Variable(str(self.root))
         a.format_var = Variable("wav")
         a.trash_sources_var = Variable(False)
+        from disctag import shortcuts
+        with patch("disctag.shortcuts.sys.platform", "win32"):
+            a.shortcut_map = shortcuts.load({})
+        a._apply_shortcuts()
         a.quality_var = Variable("320 kbps")
         a.cover_size_var = Variable("1200 × 1200")
         a.cover_embed_var = Variable("同 cover.jpg")
@@ -521,11 +525,45 @@ class AppTests(unittest.TestCase):
         a._save_settings.assert_called_once()
         a._restart.assert_called_once()
 
-    def test_enter_key_opens_track_editor(self):
+    def key(self, keysym, state=0):
+        return Mock(keysym=keysym, state=state)
+
+    def test_table_shortcuts_dispatch_and_stop_treeview_handling(self):
         a = self.app
-        a._edit_track = Mock()
-        self.assertEqual(a._edit_track_from_key(object()), "break")
+        a._edit_track, a._toggle_playback, a._move_source = Mock(), Mock(), Mock()
+        a.tracks_tree = Mock()
+        a.tracks_tree.selection.return_value = ("2",)
+        with patch("disctag.shortcuts.sys.platform", "win32"):
+            self.assertEqual(a._on_table_key(self.key("Return")), "break")
+            self.assertEqual(a._on_table_key(self.key("space")), "break")
+            self.assertEqual(a._on_table_key(self.key("Up", 0x4)), "break")
+            self.assertIsNone(a._on_table_key(self.key("Up")))
+            self.assertIsNone(a._on_table_key(self.key("o", 0x4)))
         a._edit_track.assert_called_once()
+        a._toggle_playback.assert_called_once_with(2)
+        a._move_source.assert_called_once_with(-1)
+
+    def test_global_shortcuts_ignore_table_actions(self):
+        a = self.app
+        a._import_wav, a._edit_track = Mock(), Mock()
+        with patch("disctag.shortcuts.sys.platform", "win32"):
+            self.assertEqual(a._on_global_key(self.key("o", 0x4)), "break")
+            self.assertIsNone(a._on_global_key(self.key("Return")))
+        a._import_wav.assert_called_once()
+        a._edit_track.assert_not_called()
+
+    def test_custom_shortcut_updates_hint_and_settings(self):
+        from disctag import shortcuts
+
+        a = self.app
+        a._save_settings = Mock()
+        a.track_hint_label = Mock()
+        a._set_shortcut("edit_track", "F2")
+        self.assertIn("F2", a.track_hint_label.configure.call_args.kwargs["text"])
+        self.assertEqual(shortcuts.overrides(a.shortcut_map)["edit_track"], "F2")
+        a._save_settings.assert_called_once()
+        a._set_shortcut("edit_track", "")
+        self.assertIn("双击", a.track_hint_label.configure.call_args.kwargs["text"])
 
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo

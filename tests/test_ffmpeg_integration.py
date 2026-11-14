@@ -6,8 +6,7 @@ import unittest
 from pathlib import Path
 
 from mutagen.flac import FLAC
-from mutagen.mp3 import MP3
-from mutagen.mp3 import BitrateMode
+from mutagen.mp3 import MP3, BitrateMode
 
 from disctag.audio import _convert_file
 

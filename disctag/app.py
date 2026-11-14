@@ -11,7 +11,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
-from . import i18n
+from . import i18n, shortcuts
 from .discogs import DiscogsClient
 from .i18n import tr
 from .itunes import COVER_SIZES, ITunesClient
@@ -32,6 +32,7 @@ from .ui.common import (
 )
 from .ui.cover import CoverMixin
 from .ui.easter_egg import EasterEggMixin
+from .ui.keyboard import KeyboardMixin
 from .ui.layout import LayoutMixin
 from .ui.processing import ProcessingMixin
 from .ui.queue_window import QueueWindow
@@ -41,7 +42,7 @@ from .ui.updates import UpdateMixin
 from .windowing import apply_native_window_style, configure_native_window
 
 
-class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMixin, CoverMixin, ProcessingMixin, UpdateMixin):
+class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMixin, CoverMixin, ProcessingMixin, UpdateMixin):
     def __init__(self):
         self.ui_font = "SF Pro Text" if sys.platform == "darwin" else "Segoe UI"
         self.ui_semibold = "SF Pro Display" if sys.platform == "darwin" else "Segoe UI Semibold"
@@ -63,6 +64,9 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self.root.configure(bg=BACKGROUND)
         self.settings = self._load_settings()
         self.language_setting = self.settings.get("language", "auto")
+        self.shortcut_map = shortcuts.load(self.settings.get("shortcuts"))
+        self.shortcut_window = None
+        self._apply_shortcuts()
         self.client = ITunesClient()
         self.discogs_client = DiscogsClient()
         self.musicbrainz_client = MusicBrainzClient()
@@ -277,6 +281,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
             "cover_embed": _cover_embed_value(self.cover_embed_var.get()),
             "language": getattr(self, "language_setting", "auto"),
             "trash_sources": bool(self.trash_sources_var.get()),
+            "shortcuts": shortcuts.overrides(self.shortcut_map),
         }
         try:
             path = _settings_path()

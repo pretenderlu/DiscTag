@@ -6,10 +6,10 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
 from mutagen.flac import FLAC
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
+from PIL import Image
 
 from disctag.audio import AudioError, convert_album, find_ffmpeg, output_directory, output_path
 from disctag.models import AlbumMetadata, TrackMetadata

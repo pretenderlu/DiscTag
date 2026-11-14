@@ -303,10 +303,6 @@ class TracksMixin:
         self.status_var.set(tr("已移除手动缺曲，可重新选择插入位置或使用时长匹配"))
         return True
 
-    def _edit_track_from_key(self, _event=None) -> str:
-        self._edit_track()
-        return "break"
-
     def _edit_track(self) -> None:
         if self.updating:
             return

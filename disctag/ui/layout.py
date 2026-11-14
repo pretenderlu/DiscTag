@@ -229,12 +229,13 @@ class LayoutMixin:
         track_scroll.pack(side="right", fill="y")
         self.tracks_tree.bind("<Button-1>", self._track_clicked)
         self.tracks_tree.bind("<Double-1>", lambda _event: self._edit_track())
-        for key in ("<Return>", "<KP_Enter>"):
-            self.tracks_tree.bind(key, self._edit_track_from_key)
+        # 可自定义的快捷键：曲目表上的处理器先于 Treeview 自带的按键处理执行。
+        self.tracks_tree.bind("<KeyPress>", self._on_table_key)
+        self.root.bind("<KeyPress>", self._on_global_key)
         # 先于曲目表占位：窗口较矮时由可滚动的曲目表收缩，说明文字不被裁掉。
-        track_hint = ttk.Label(
+        track_hint = self.track_hint_label = ttk.Label(
             right,
-            text=tr("选中曲目后按回车或双击，即可编辑歌曲名和歌手；↑ ↓ 切换曲目，编辑窗口中回车保存、Esc 取消；点击 ▶ 试听。"),
+            text=self._track_hint_text(),
             style="Muted.Card.TLabel",
             justify="left",
         )
@@ -301,6 +302,18 @@ class LayoutMixin:
             pady=self._px(7),
         )
         self.language_link.pack(side="left", padx=(0, self._px(14)))
+        self.shortcut_link = tk.Label(
+            version_frame,
+            text=tr("快捷键"),
+            bg=BACKGROUND,
+            fg=ACCENT,
+            font=(self.ui_font, 10),
+            cursor="hand2",
+            padx=0,
+            pady=self._px(7),
+        )
+        self.shortcut_link.pack(side="left", padx=(0, self._px(14)), before=self.language_link)
+        self.shortcut_link.bind("<Button-1>", lambda _event: self._show_shortcuts())
         self.language_link.bind("<Button-1>", lambda _event: self._switch_language())
         self.github_link.pack(side="left")
         self.update_dot = tk.Label(

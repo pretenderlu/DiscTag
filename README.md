@@ -4,7 +4,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v2.2.0**
+当前版本：**v2.3.0**
 
 ## 功能
 
@@ -25,6 +25,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 - 可选“完成后将源 WAV 移到回收站”（macOS 为废纸篓）：只有整张专辑全部处理成功才会移动，任何曲目失败或中途取消都会保留全部源文件；文件进入回收站后可随时恢复，同一文件夹中的 cue、log 等其他文件不受影响。网络驱动器上的文件不会移动。
 - 处理过程中可随时取消：当前专辑已完成的曲目保留，未完成的临时文件自动清理，队列中其余专辑保留待处理。
 - 高 DPI 界面，内置 Windows FFmpeg，无需单独安装。
+- 键盘操作：选中曲目后按回车编辑、空格试听或停止，Ctrl+↑ / Ctrl+↓ 调整曲序；Ctrl+O 导入、Ctrl+F 搜索、Ctrl+Enter 开始处理（macOS 为 ⌘）。点击右下角的“快捷键”可以自定义，双击曲目始终可以编辑。
 - 支持中文和英文界面：默认跟随系统语言，可点击右下角的 “English / 中文” 切换，切换后自动重启。
 
 ## 下载与运行
@@ -33,7 +34,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 [下载 Releases](https://github.com/pretenderlu/DiscTag/releases)
 
-Windows 用户可运行 `DiscTagSetup-v2.2.0.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
+Windows 用户可运行 `DiscTagSetup-v2.3.0.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
 
 Windows 版启动时会检查 GitHub 最新 Release。发现新版本后，右下角显示圆点，点击圆点或版本号可自动下载、校验并安装更新，安装完成后自动重启应用。macOS 点击后跳转到最新发布页。
 
