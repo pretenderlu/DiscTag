@@ -4,19 +4,22 @@ from __future__ import annotations
 import json
 import os
 import queue
+import subprocess
 import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
+from . import i18n
 from .discogs import DiscogsClient
-from .settings import load_settings
+from .i18n import tr
 from .itunes import COVER_SIZES, ITunesClient
 from .jobs import ConversionJob, JobQueue
 from .models import AlbumMetadata, AlbumSummary
 from .musicbrainz import MusicBrainzClient
 from .playback import AudioPreview
+from .settings import load_settings
 from .ui.catalog import CatalogMixin
 from .ui.common import (
     BACKGROUND,
@@ -49,7 +52,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
             self.root.attributes("-alpha", 0.0)
         except tk.TclError:
             pass
-        self.root.title("DiscTag — CD 音频处理与标签工具")
+        self.root.title(tr("DiscTag — CD 音频处理与标签工具"))
         self.ui_scale = 1.0
         if sys.platform == "win32":
             pixels_per_inch = self.root.winfo_fpixels("1i")
@@ -59,6 +62,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         configure_native_window(self.root, "#1D1C31")
         self.root.configure(bg=BACKGROUND)
         self.settings = self._load_settings()
+        self.language_setting = self.settings.get("language", "auto")
         self.client = ITunesClient()
         self.discogs_client = DiscogsClient()
         self.musicbrainz_client = MusicBrainzClient()
@@ -97,7 +101,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self.album_artist_var = tk.StringVar()
         self.date_var = tk.StringVar()
         self.genre_var = tk.StringVar()
-        self.source_var = tk.StringVar(value="尚未选择 WAV 文件夹")
+        self.source_var = tk.StringVar(value=tr("尚未选择 WAV 文件夹"))
         self.output_var = tk.StringVar(value=self.settings.get("output", str(Path.home() / "Music" / "DiscTag")))
         self.format_var = tk.StringVar(value=self.settings.get("format", "flac"))
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
@@ -118,9 +122,9 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self.album_request_id = 0
         self.search_request_id = 0
         self.cover_is_local = False
-        self.album_info_var = tk.StringVar(value="搜索并选择专辑，或进入手动模式")
-        self.match_var = tk.StringVar(value="先导入 WAV 文件")
-        self.status_var = tk.StringVar(value="就绪")
+        self.album_info_var = tk.StringVar(value=tr("搜索并选择专辑，或进入手动模式"))
+        self.match_var = tk.StringVar(value=tr("先导入 WAV 文件"))
+        self.status_var = tk.StringVar(value=tr("就绪"))
         self.progress_var = tk.DoubleVar(value=0)
         self._configure_styles()
         self._load_icon()
@@ -213,11 +217,11 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
     def _close(self) -> None:
         pending = self.job_queue.pending_count()
         if self.converting:
-            message = "现在退出会中断未完成的处理"
-            message += f"，队列中还有 {pending} 张专辑未处理" if pending else ""
-            if not messagebox.askyesno("处理仍在进行", f"{message}，确定退出吗？", parent=self.root):
+            message = tr("现在退出会中断未完成的处理")
+            message += tr("，队列中还有 {0} 张专辑未处理", pending) if pending else ""
+            if not messagebox.askyesno(tr("处理仍在进行"), tr("{0}，确定退出吗？", message), parent=self.root):
                 return
-        elif pending and not messagebox.askyesno("队列尚未处理", f"队列中还有 {pending} 张专辑未处理，退出后队列会清空。确定退出吗？", parent=self.root):
+        elif pending and not messagebox.askyesno(tr("队列尚未处理"), tr("队列中还有 {0} 张专辑未处理，退出后队列会清空。确定退出吗？", pending), parent=self.root):
             return
         if self.converting and self.cancel_event is not None:
             # 让工作线程结束 FFmpeg 并清理临时目录，避免残留进程和 .disctag-* 文件夹。
@@ -228,6 +232,33 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self._close_easter_egg()
         self._close_update_dialog()
         self._save_settings()
+        self.root.destroy()
+
+    def _switch_language(self) -> None:
+        target = "en" if i18n.language() == "zh" else "zh"
+        if self.converting or self.updating or self.job_queue.pending_count():
+            messagebox.showwarning(
+                tr("无法切换语言"), tr("请等待处理完成、队列清空后再切换语言。"), parent=self.root
+            )
+            return
+        # 提示用目标语言书写，方便看不懂当前界面语言的用户确认。
+        prompt = "Switch DiscTag to English? DiscTag will restart." if target == "en" else "切换为中文界面？DiscTag 将重新启动。"
+        if not messagebox.askyesno("Language / 语言", prompt, parent=self.root):
+            return
+        self.language_setting = target
+        self._save_settings()
+        self._restart()
+
+    def _restart(self) -> None:
+        command = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, *sys.argv]
+        try:
+            subprocess.Popen(command)
+        except OSError as exc:
+            messagebox.showerror(tr("无法重新启动"), tr("语言已保存，请手动重新打开 DiscTag。\n\n{0}", exc), parent=self.root)
+            return
+        self.preview.stop()
+        self._close_easter_egg()
+        self._close_update_dialog()
         self.root.destroy()
 
     def _load_settings(self) -> dict:
@@ -243,6 +274,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
             "metadata_source": self.metadata_source_var.get(),
             "cover_size": self._cover_size_value(),
             "cover_embed": _cover_embed_value(self.cover_embed_var.get()),
+            "language": getattr(self, "language_setting", "auto"),
         }
         try:
             path = _settings_path()

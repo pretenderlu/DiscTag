@@ -23,6 +23,7 @@ from ..editing import (
     match_status,
     track_label,
 )
+from ..i18n import tr
 from ..models import AlbumMetadata
 from .common import (
     CARD,
@@ -34,13 +35,13 @@ class TracksMixin:
     def _import_wav(self) -> None:
         if self.updating:
             return
-        selected = filedialog.askdirectory(title="选择包含 WAV 音轨的文件夹")
+        selected = filedialog.askdirectory(title=tr("选择包含 WAV 音轨的文件夹"))
         if not selected:
             return
         directory = Path(selected)
         files = sorted((path for path in directory.iterdir() if path.is_file() and path.suffix.lower() == ".wav"), key=natural_key)
         if not files:
-            messagebox.showwarning("没有 WAV 文件", "所选文件夹中没有找到 .wav 文件。", parent=self.root)
+            messagebox.showwarning(tr("没有 WAV 文件"), tr("所选文件夹中没有找到 .wav 文件。"), parent=self.root)
             return
         self.preview.stop()
         self._invalidate_metadata_requests()
@@ -57,11 +58,11 @@ class TracksMixin:
         self.album_region = ""
         self.metadata_dirty = False
         self.cover_data = None
-        self.source_var.set(f"{directory}  ·  {len(files)} 首")
-        self.album_info_var.set("搜索并选择专辑，或进入手动模式")
+        self.source_var.set(tr("{0}  ·  {1} 首", directory, len(files)))
+        self.album_info_var.set(tr("搜索并选择专辑，或进入手动模式"))
         self._clear_cover()
         self._refresh_tracks()
-        self.status_var.set(f"已导入 {len(files)} 个 WAV 文件")
+        self.status_var.set(tr("已导入 {0} 个 WAV 文件", len(files)))
 
     def _source_duration(self, path: Path) -> float | None:
         if path not in self.source_durations:
@@ -72,17 +73,17 @@ class TracksMixin:
         if self.updating:
             return
         if not self.sources:
-            messagebox.showwarning("请先导入 WAV", "手动模式需要本地 WAV 文件来建立曲目列表。", parent=self.root)
+            messagebox.showwarning(tr("请先导入 WAV"), tr("手动模式需要本地 WAV 文件来建立曲目列表。"), parent=self.root)
             return
         if not self.album_var.get().strip():
-            messagebox.showwarning("缺少专辑名称", "请先填写专辑名称。", parent=self.root)
+            messagebox.showwarning(tr("缺少专辑名称"), tr("请先填写专辑名称。"), parent=self.root)
             return
         if self.album and self.metadata_dirty:
-            replace = messagebox.askyesno("进入手动模式", "这会覆盖当前的在线匹配和手动补曲，是否继续？", parent=self.root)
+            replace = messagebox.askyesno(tr("进入手动模式"), tr("这会覆盖当前的在线匹配和手动补曲，是否继续？"), parent=self.root)
             if not replace:
                 return
         self._invalidate_metadata_requests()
-        artist = self.artist_var.get().strip() or self.album_artist_var.get().strip() or "未知歌手"
+        artist = self.artist_var.get().strip() or self.album_artist_var.get().strip() or tr("未知歌手")
         tracks = manual_tracks(self.sources, artist)
         self.album = AlbumMetadata(
             title=self.album_var.get().strip(),
@@ -97,7 +98,7 @@ class TracksMixin:
         self.album_artist_var.set(self.album.album_artist)
         self._update_album_info()
         self._refresh_tracks()
-        self.status_var.set("手动资料已建立，可逐首编辑歌曲名和歌手")
+        self.status_var.set(tr("手动资料已建立，可逐首编辑歌曲名和歌手"))
 
     def _update_album_info(self) -> None:
         if not self.album:
@@ -115,9 +116,9 @@ class TracksMixin:
             number = track_label(track, index)
             title = track.title if track else (clean_track_title(source) if source else "—")
             if track and track.origin == "manual":
-                title = f"[手动] {title}"
+                title = tr("[手动] {0}", title)
             elif track and track.origin == "auto-manual":
-                title = f"[待确认] {title}"
+                title = tr("[待确认] {0}", title)
             artist = track.artist if track else (self.artist_var.get() if source else "—")
             local_duration = self._source_duration(source) if source else None
             duration = _duration(local_duration * 1000) if local_duration is not None else (_duration(track.duration_ms) if track else "—")
@@ -158,7 +159,7 @@ class TracksMixin:
         try:
             self.preview.toggle(self.sources[index])
         except RuntimeError as exc:
-            messagebox.showerror("无法试听", str(exc), parent=self.root)
+            messagebox.showerror(tr("无法试听"), str(exc), parent=self.root)
 
     def _playback_changed(self, playing: bool, path: Path) -> None:
         for iid in self.tracks_tree.get_children():
@@ -172,9 +173,9 @@ class TracksMixin:
                 tags.insert(0, "playing")
             self.tracks_tree.item(iid, values=values, tags=tags)
         if playing:
-            self.status_var.set(f"正在试听：{path.name}")
-        elif self.status_var.get().startswith("正在试听"):
-            self.status_var.set("试听已停止")
+            self.status_var.set(tr("正在试听：{0}", path.name))
+        elif self.status_var.get().startswith(tr("正在试听：{0}", "")):
+            self.status_var.set(tr("试听已停止"))
 
     def _move_source(self, offset: int) -> None:
         if self.updating:
@@ -209,8 +210,8 @@ class TracksMixin:
         self.tracks_tree.selection_set(str(first_missing))
         self.tracks_tree.focus(str(first_missing))
         self.tracks_tree.see(str(first_missing))
-        positions = "、".join(f"{position:02d}" for position in missing_positions)
-        message = f"已按时长补出第 {positions} 首并标为待确认；请查阅实体 CD 曲目表，双击填写真实歌名"
+        positions = tr("、").join(f"{position:02d}" for position in missing_positions)
+        message = tr("已按时长补出第 {0} 首并标为待确认；请查阅实体 CD 曲目表，双击填写真实歌名", positions)
         self.status_var.set(message)
         return message
 
@@ -218,12 +219,12 @@ class TracksMixin:
         if self.updating:
             return
         if not self.album or self.album.collection_id is None or len(self.sources) <= len(self.album.tracks):
-            messagebox.showinfo("无需插入", "当前没有可由手动缺曲补齐的数量差异。", parent=self.root)
+            messagebox.showinfo(tr("无需插入"), tr("当前没有可由手动缺曲补齐的数量差异。"), parent=self.root)
             return
         selection = self.tracks_tree.selection()
         default_position = int(selection[0]) + 1 if selection else len(self.album.tracks) + 1
         dialog = tk.Toplevel(self.root)
-        dialog.title("插入缺失曲目")
+        dialog.title(tr("插入缺失曲目"))
         dialog.configure(bg=CARD)
         dialog.resizable(False, False)
         dialog.transient(self.root)
@@ -233,14 +234,14 @@ class TracksMixin:
         position_var = tk.IntVar(value=default_position)
         title_var = tk.StringVar()
         artist_var = tk.StringVar(value=self.album_artist_var.get() or self.album.artist)
-        ttk.Label(frame, text="按实体 CD 补充缺失曲目", style="Title.Card.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(frame, text=tr("按实体 CD 补充缺失曲目"), style="Title.Card.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             frame,
-            text="请查阅 CD 封底或内页的曲目表，确认正确曲序和歌名。\n后续在线曲目会自动顺移，歌曲名称保持不变。",
+            text=tr("请查阅 CD 封底或内页的曲目表，确认正确曲序和歌名。\n后续在线曲目会自动顺移，歌曲名称保持不变。"),
             style="Muted.Card.TLabel",
             justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
-        ttk.Label(frame, text="插入到 CD 曲序", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=tr("插入到 CD 曲序"), style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Combobox(
             frame,
             textvariable=position_var,
@@ -248,23 +249,23 @@ class TracksMixin:
             state="readonly",
             width=8,
         ).grid(row=2, column=1, sticky="w", pady=5, padx=(12, 0))
-        ttk.Label(frame, text="歌曲名称", style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=tr("歌曲名称"), style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=5)
         title_entry = ttk.Entry(frame, textvariable=title_var, width=38)
         title_entry.grid(row=3, column=1, sticky="ew", pady=5, padx=(12, 0))
-        ttk.Label(frame, text="歌手", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=tr("歌手"), style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=5)
         ttk.Entry(frame, textvariable=artist_var, width=38).grid(row=4, column=1, sticky="ew", pady=5, padx=(12, 0))
 
         def save():
             if not title_var.get().strip():
-                messagebox.showwarning("缺少歌曲名", "请按实体 CD 曲目表填写歌曲名称。", parent=dialog)
+                messagebox.showwarning(tr("缺少歌曲名"), tr("请按实体 CD 曲目表填写歌曲名称。"), parent=dialog)
                 return
             if self._insert_track_at(position_var.get(), title_var.get(), artist_var.get()):
                 dialog.destroy()
 
         buttons = ttk.Frame(frame, style="Card.TFrame")
         buttons.grid(row=5, column=0, columnspan=2, sticky="e", pady=(16, 0))
-        ttk.Button(buttons, text="取消", command=dialog.destroy).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="插入并顺移", style="Accent.TButton", command=save).pack(side="left")
+        ttk.Button(buttons, text=tr("取消"), command=dialog.destroy).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text=tr("插入并顺移"), style="Accent.TButton", command=save).pack(side="left")
         title_entry.focus_set()
         dialog.bind("<Return>", lambda _event: save())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
@@ -286,7 +287,7 @@ class TracksMixin:
         self.tracks_tree.selection_set(str(index))
         self.tracks_tree.focus(str(index))
         self.tracks_tree.see(str(index))
-        self.status_var.set(f"已在第 {position:02d} 首插入手动曲目，后续曲目已顺移")
+        self.status_var.set(tr("已在第 {0:02d} 首插入手动曲目，后续曲目已顺移", position))
         return True
 
     def _delete_manual_track(self, index: int) -> bool:
@@ -299,7 +300,7 @@ class TracksMixin:
             selected = min(index, len(self.album.tracks) - 1)
             self.tracks_tree.selection_set(str(selected))
             self.tracks_tree.focus(str(selected))
-        self.status_var.set("已移除手动缺曲，可重新选择插入位置或使用时长匹配")
+        self.status_var.set(tr("已移除手动缺曲，可重新选择插入位置或使用时长匹配"))
         return True
 
     def _edit_track(self) -> None:
@@ -313,7 +314,7 @@ class TracksMixin:
             return
         track = self.album.tracks[index]
         dialog = tk.Toplevel(self.root)
-        dialog.title("编辑曲目")
+        dialog.title(tr("编辑曲目"))
         dialog.configure(bg=CARD)
         dialog.resizable(False, False)
         dialog.transient(self.root)
@@ -322,19 +323,19 @@ class TracksMixin:
         frame.pack(fill="both", expand=True)
         title_var = tk.StringVar(value=track.title)
         artist_var = tk.StringVar(value=track.artist)
-        ttk.Label(frame, text=f"曲序 {track.track_number:02d}", style="Title.Card.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
-        ttk.Label(frame, text="歌曲名", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=tr("曲序 {0:02d}", track.track_number), style="Title.Card.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ttk.Label(frame, text=tr("歌曲名"), style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         title_entry = ttk.Entry(frame, textvariable=title_var, width=40)
         title_entry.grid(row=1, column=1, sticky="ew", pady=5, padx=(12, 0))
-        ttk.Label(frame, text="歌手", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=tr("歌手"), style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Entry(frame, textvariable=artist_var, width=40).grid(row=2, column=1, sticky="ew", pady=5, padx=(12, 0))
 
         def save():
             if not title_var.get().strip():
-                messagebox.showwarning("缺少歌曲名", "歌曲名不能为空。", parent=dialog)
+                messagebox.showwarning(tr("缺少歌曲名"), tr("歌曲名不能为空。"), parent=dialog)
                 return
             if track.origin == "auto-manual" and title_var.get().strip() == track.title:
-                messagebox.showwarning("请确认真实歌名", "请按实体 CD 曲目表修改占位名称，再保存确认。", parent=dialog)
+                messagebox.showwarning(tr("请确认真实歌名"), tr("请按实体 CD 曲目表修改占位名称，再保存确认。"), parent=dialog)
                 return
             track.title = title_var.get().strip()
             track.artist = artist_var.get().strip() or self.album.artist
@@ -347,19 +348,19 @@ class TracksMixin:
 
         def delete_manual():
             confirmed = messagebox.askyesno(
-                "删除手动缺曲",
-                "删除后，后续在线曲目会恢复顺移前的位置。是否继续？",
+                tr("删除手动缺曲"),
+                tr("删除后，后续在线曲目会恢复顺移前的位置。是否继续？"),
                 parent=dialog,
             )
             if confirmed and self._delete_manual_track(index):
                 dialog.destroy()
 
         if track.origin in MANUAL_ORIGINS and self.album.collection_id is not None:
-            ttk.Button(frame, text="删除手动曲目", command=delete_manual).grid(row=3, column=0, sticky="w", pady=(16, 0))
+            ttk.Button(frame, text=tr("删除手动曲目"), command=delete_manual).grid(row=3, column=0, sticky="w", pady=(16, 0))
         buttons = ttk.Frame(frame, style="Card.TFrame")
         buttons.grid(row=3, column=1, sticky="e", pady=(16, 0))
-        ttk.Button(buttons, text="取消", command=dialog.destroy).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="保存", style="Accent.TButton", command=save).pack(side="left")
+        ttk.Button(buttons, text=tr("取消"), command=dialog.destroy).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text=tr("保存"), style="Accent.TButton", command=save).pack(side="left")
         title_entry.focus_set()
         dialog.bind("<Return>", lambda _event: save())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())

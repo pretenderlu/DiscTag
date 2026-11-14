@@ -499,6 +499,27 @@ class AppTests(unittest.TestCase):
         warning.assert_called_once()
         self.assertEqual(self.jobs, [])
 
+    def test_switch_language_blocked_while_processing(self):
+        a = self.app
+        a.converting = True
+        a._restart = Mock()
+        with patch("tkinter.messagebox.showwarning") as warning:
+            a._switch_language()
+        warning.assert_called_once()
+        a._restart.assert_not_called()
+
+    def test_switch_language_saves_and_restarts(self):
+        from disctag import i18n
+
+        a = self.app
+        a._save_settings = Mock()
+        a._restart = Mock()
+        with patch("tkinter.messagebox.askyesno", return_value=True):
+            a._switch_language()
+        self.assertEqual(a.language_setting, "en" if i18n.language() == "zh" else "zh")
+        a._save_settings.assert_called_once()
+        a._restart.assert_called_once()
+
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo
 

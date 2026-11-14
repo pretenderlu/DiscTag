@@ -9,6 +9,7 @@ import requests
 from . import __version__
 from .catalog_common import fetch_cover
 from .catalog_common import match_score as _match_score
+from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -24,7 +25,7 @@ class DiscogsClient:
 
     def search_albums(self, album: str, artist: str, token: str) -> list[AlbumSummary]:
         if not token.strip():
-            raise DiscogsError("请先填写 Discogs Personal Access Token。")
+            raise DiscogsError(tr("请先填写 Discogs Personal Access Token。"))
         data = self._get(
             "https://api.discogs.com/database/search",
             {
@@ -57,7 +58,7 @@ class DiscogsClient:
 
     def get_album(self, collection_id: int, token: str) -> AlbumMetadata:
         data = self._get(f"https://api.discogs.com/releases/{collection_id}", {}, token)
-        artist = _artist_names(data.get("artists", [])) or "未知歌手"
+        artist = _artist_names(data.get("artists", [])) or tr("未知歌手")
         tracks = []
         previous_position = None
         for index, item in enumerate(_audio_entries(data.get("tracklist", [])), 1):
@@ -70,7 +71,7 @@ class DiscogsClient:
                 previous = tracks[-1]
                 previous.title += " / " + item.get("title", f"Track {index}")
                 if performer != previous.artist:
-                    previous.artist += "、" + performer
+                    previous.artist += tr("、") + performer
                 previous.duration_ms = previous.duration_ms + duration if previous.duration_ms and duration else 0
                 continue
             tracks.append(
@@ -85,7 +86,7 @@ class DiscogsClient:
             )
             previous_position = position
         if not tracks:
-            raise DiscogsError("这张唱片没有可匹配的曲目。")
+            raise DiscogsError(tr("这张唱片没有可匹配的曲目。"))
         disc_count = max(track.disc_number for track in tracks)
         for track in tracks:
             track.disc_count = disc_count
@@ -106,27 +107,27 @@ class DiscogsClient:
 
     def download_cover(self, artwork_url: str, size: int, token: str) -> bytes:
         if not artwork_url:
-            raise DiscogsError("这张唱片没有可用封面。")
+            raise DiscogsError(tr("这张唱片没有可用封面。"))
         try:
             self._throttle()
             return fetch_cover(artwork_url, size, self._headers(""), self.timeout)
         except (requests.RequestException, OSError) as exc:
-            raise DiscogsError(f"Discogs 封面下载失败：{exc}") from exc
+            raise DiscogsError(tr("Discogs 封面下载失败：{0}", exc)) from exc
 
     def _get(self, url: str, params: dict, token: str) -> dict:
         try:
             self._throttle()
             response = requests.get(url, params=params, headers=self._headers(token), timeout=self.timeout)
             if response.status_code == 401:
-                raise DiscogsError("Discogs 令牌无效或已失效，请重新创建。")
+                raise DiscogsError(tr("Discogs 令牌无效或已失效，请重新创建。"))
             if response.status_code == 429:
-                raise DiscogsError("Discogs 请求过于频繁，请稍后再试。")
+                raise DiscogsError(tr("Discogs 请求过于频繁，请稍后再试。"))
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
-            raise DiscogsError(f"无法连接 Discogs：{exc}") from exc
+            raise DiscogsError(tr("无法连接 Discogs：{0}", exc)) from exc
         except ValueError as exc:
-            raise DiscogsError("Discogs 返回了无法识别的数据。") from exc
+            raise DiscogsError(tr("Discogs 返回了无法识别的数据。")) from exc
 
     def _throttle(self) -> None:
         with self._request_lock:
@@ -147,7 +148,7 @@ def _split_release_title(value: str) -> tuple[str, str]:
     if " - " in value:
         artist, title = value.split(" - ", 1)
         return artist.strip(), title.strip()
-    return "", value.strip() or "未知专辑"
+    return "", value.strip() or tr("未知专辑")
 
 
 def _clean_artist(value: str) -> str:
@@ -162,7 +163,7 @@ def _artist_names(artists: list[dict]) -> str:
     for index, (name, join) in enumerate(entries):
         parts.append(name)
         if index < len(entries) - 1:
-            parts.append("、" if not join else ", " if join == "," else f" {join} ")
+            parts.append(tr("、") if not join else ", " if join == "," else f" {join} ")
     return "".join(parts)
 
 
@@ -176,9 +177,9 @@ def _audio_entries(items: list[dict], title: str = "", artists: list[dict] | Non
         if item.get("type_") == "index":
             children = item.get("sub_tracks") or []
             if not children:
-                raise DiscogsError("唱片包含没有子曲目的分组，无法确定音轨，请改用手动模式。")
+                raise DiscogsError(tr("唱片包含没有子曲目的分组，无法确定音轨，请改用手动模式。"))
             if any(not child.get("position") and child.get("type_") not in {"heading", "index"} for child in children):
-                raise DiscogsError("分组内的子曲目缺少曲序，无法确定音轨，请改用手动模式。")
+                raise DiscogsError(tr("分组内的子曲目缺少曲序，无法确定音轨，请改用手动模式。"))
             yield from _audio_entries(children, name, performers)
         else:
             yield {**item, "title": name, "artists": performers}

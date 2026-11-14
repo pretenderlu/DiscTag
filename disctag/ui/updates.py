@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from .. import __version__
+from ..i18n import tr
 from ..updates import check_for_updates, download_update
 from .common import (
     ACCENT,
@@ -30,8 +31,8 @@ class UpdateMixin:
             self.latest_release_url = info.url
             if not self.update_dot.winfo_ismapped():
                 self.update_dot.pack(side="left", padx=(self._px(6), 0))
-            action = "点击圆点查看更新" if info.download_url else "点击右下角打开发布页"
-            self.status_var.set(f"发现新版本 {info.version} · {action}")
+            action = tr("点击圆点查看更新") if info.download_url else tr("点击右下角打开发布页")
+            self.status_var.set(tr("发现新版本 {0} · {1}", info.version, action))
 
         self._run_async(work, done, lambda _error: None)
 
@@ -45,7 +46,7 @@ class UpdateMixin:
         if self.updating:
             return
         if self.converting:
-            messagebox.showwarning("正在处理专辑", "请等待当前专辑处理完成后再更新。", parent=self.root)
+            messagebox.showwarning(tr("正在处理专辑"), tr("请等待当前专辑处理完成后再更新。"), parent=self.root)
             return
         info = self.latest_update
         if not info:
@@ -57,14 +58,14 @@ class UpdateMixin:
             return
         dialog = tk.Toplevel(self.root)
         self.update_dialog = dialog
-        dialog.title("自动更新")
+        dialog.title(tr("自动更新"))
         dialog.configure(bg=CARD)
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
         frame = ttk.Frame(dialog, style="Card.TFrame", padding=self._px(22))
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=f"发现新版本 {info.version}", style="Title.Card.TLabel").pack(anchor="w")
+        ttk.Label(frame, text=tr("发现新版本 {0}", info.version), style="Title.Card.TLabel").pack(anchor="w")
         if info.notes:
             notes_frame = ttk.Frame(frame, style="Card.TFrame")
             notes_frame.pack(fill="x", pady=(self._px(12), 0))
@@ -90,7 +91,7 @@ class UpdateMixin:
             notes.configure(state="disabled")
         release_link = ttk.Label(
             frame,
-            text="查看发布页并手动下载",
+            text=tr("查看发布页并手动下载"),
             style="Card.TLabel",
             foreground=ACCENT,
             cursor="hand2",
@@ -99,11 +100,11 @@ class UpdateMixin:
         release_link.bind("<Button-1>", lambda _event: webbrowser.open(info.url, new=2))
         release_link.bind("<Enter>", lambda _event: release_link.configure(font=(self.ui_font, 11, "underline")))
         release_link.bind("<Leave>", lambda _event: release_link.configure(font=(self.ui_font, 11)))
-        ttk.Label(frame, text="是否下载并自动安装？", style="Card.TLabel").pack(anchor="w", pady=(self._px(16), 0))
+        ttk.Label(frame, text=tr("是否下载并自动安装？"), style="Card.TLabel").pack(anchor="w", pady=(self._px(16), 0))
         buttons = ttk.Frame(frame, style="Card.TFrame")
         buttons.pack(anchor="e", pady=(self._px(12), 0))
-        ttk.Button(buttons, text="否", command=self._close_update_dialog).pack(side="left", padx=(0, 8))
-        yes_button = ttk.Button(buttons, text="是", style="Accent.TButton", command=lambda: self._begin_update_download(info))
+        ttk.Button(buttons, text=tr("否"), command=self._close_update_dialog).pack(side="left", padx=(0, 8))
+        yes_button = ttk.Button(buttons, text=tr("是"), style="Accent.TButton", command=lambda: self._begin_update_download(info))
         yes_button.pack(side="left")
         yes_button.bind("<Return>", lambda _event: self._begin_update_download(info))
         yes_button.focus_set()
@@ -124,7 +125,7 @@ class UpdateMixin:
         if self.updating:
             return
         if self.converting:
-            messagebox.showwarning("正在处理专辑", "请等待当前专辑处理完成后再更新。", parent=self.root)
+            messagebox.showwarning(tr("正在处理专辑"), tr("请等待当前专辑处理完成后再更新。"), parent=self.root)
             return
         self.updating = True
         self._invalidate_metadata_requests()
@@ -140,19 +141,19 @@ class UpdateMixin:
 
             return download_update(info, destination, progress)
 
-        self.status_var.set("正在下载更新…")
+        self.status_var.set(tr("正在下载更新…"))
         self._run_async(work, self._install_update, self._update_failed)
 
     def _update_download_progress(self, downloaded: int, total: int) -> None:
         self.progress_var.set(downloaded)
         if total:
-            self.status_var.set(f"正在下载更新 · {downloaded / total:.0%}")
+            self.status_var.set(tr("正在下载更新 · {0:.0%}", downloaded / total))
         else:
-            self.status_var.set(f"已下载 {downloaded / 1024 / 1024:.1f} MB")
+            self.status_var.set(tr("已下载 {0:.1f} MB", downloaded / 1024 / 1024))
 
     def _install_update(self, installer: Path) -> None:
         self.updating = False
-        self.status_var.set("更新包校验完成，正在安装…")
+        self.status_var.set(tr("更新包校验完成，正在安装…"))
         self._save_settings()
         try:
             subprocess.Popen(
@@ -169,10 +170,10 @@ class UpdateMixin:
         self.convert_button.configure(state="normal")
         self.search_button.configure(state="normal")
         self.clear_button.configure(state="normal")
-        self.status_var.set(f"自动更新失败：{error}")
+        self.status_var.set(tr("自动更新失败：{0}", error))
         choice = messagebox.askyesnocancel(
-            "自动更新失败",
-            f"{error}\n\n选择\"是\"重试下载，选择\"否\"打开发布页手动下载。",
+            tr("自动更新失败"),
+            tr("{0}\n\n选择\"是\"重试下载，选择\"否\"打开发布页手动下载。", error),
             parent=self.root,
         )
         if choice:

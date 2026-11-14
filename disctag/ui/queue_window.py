@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
+from ..i18n import tr
 from ..jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ class QueueWindow:
         self.app = app
         px = app._px
         self.window = tk.Toplevel(app.root)
-        self.window.title("处理队列")
+        self.window.title(tr("处理队列"))
         self.window.transient(app.root)
         self.window.minsize(px(640), px(320))
         self.window.geometry(f"{px(860)}x{px(420)}")
@@ -27,10 +28,10 @@ class QueueWindow:
 
         body = ttk.Frame(self.window, style="Card.TFrame", padding=px(16))
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text="处理队列", style="Title.Card.TLabel").pack(anchor="w")
+        ttk.Label(body, text=tr("处理队列"), style="Title.Card.TLabel").pack(anchor="w")
         ttk.Label(
             body,
-            text="按顺序逐张处理。处理期间可以继续导入、校对下一张 CD 并加入队列。",
+            text=tr("按顺序逐张处理。处理期间可以继续导入、校对下一张 CD 并加入队列。"),
             style="Muted.Card.TLabel",
         ).pack(anchor="w", pady=(2, px(10)))
 
@@ -39,12 +40,12 @@ class QueueWindow:
         columns = ("status", "album", "artist", "tracks", "format", "message")
         self.tree = ttk.Treeview(table, columns=columns, show="headings", selectmode="browse")
         for key, text, width, anchor, stretch in (
-            ("status", "状态", 72, "center", False),
-            ("album", "专辑", 200, "w", True),
-            ("artist", "歌手", 140, "w", True),
-            ("tracks", "曲目", 52, "center", False),
-            ("format", "格式", 82, "center", False),
-            ("message", "说明", 200, "w", True),
+            ("status", tr("状态"), 72, "center", False),
+            ("album", tr("专辑"), 200, "w", True),
+            ("artist", tr("歌手"), 140, "w", True),
+            ("tracks", tr("曲目"), 52, "center", False),
+            ("format", tr("格式"), 82, "center", False),
+            ("message", tr("说明"), 200, "w", True),
         ):
             self.tree.heading(key, text=text)
             self.tree.column(key, width=px(width), anchor=anchor, stretch=stretch)
@@ -60,14 +61,14 @@ class QueueWindow:
 
         actions = ttk.Frame(body, style="Card.TFrame")
         actions.pack(fill="x", pady=(px(12), 0))
-        self.remove_button = ttk.Button(actions, text="移除", command=self._remove)
+        self.remove_button = ttk.Button(actions, text=tr("移除"), command=self._remove)
         self.remove_button.pack(side="left")
-        self.retry_button = ttk.Button(actions, text="重新排队", command=self._retry)
+        self.retry_button = ttk.Button(actions, text=tr("重新排队"), command=self._retry)
         self.retry_button.pack(side="left", padx=(px(8), 0))
-        self.clear_button = ttk.Button(actions, text="清除已结束", command=self._clear_finished)
+        self.clear_button = ttk.Button(actions, text=tr("清除已结束"), command=self._clear_finished)
         self.clear_button.pack(side="left", padx=(px(8), 0))
-        ttk.Button(actions, text="关闭", command=self.close).pack(side="right")
-        self.start_button = ttk.Button(actions, text="开始处理队列", style="Accent.TButton", command=self._start)
+        ttk.Button(actions, text=tr("关闭"), command=self.close).pack(side="right")
+        self.start_button = ttk.Button(actions, text=tr("开始处理队列"), style="Accent.TButton", command=self._start)
         self.start_button.pack(side="right", padx=(0, px(8)))
         self.refresh()
 

@@ -8,6 +8,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 from ..fireworks import Fireworks
+from ..i18n import tr
 from .common import (
     _resource_path,
 )
@@ -31,7 +32,7 @@ class EasterEggMixin:
     def _show_easter_egg(self) -> None:
         dialog = tk.Toplevel(self.root)
         self.easter_egg_dialog = dialog
-        dialog.title("DiscTag · 水友驱动开发")
+        dialog.title(tr("DiscTag · 水友驱动开发"))
         dialog.configure(bg="#F5F0E7")
         dialog.resizable(False, False)
         dialog.transient(self.root)
@@ -50,7 +51,7 @@ class EasterEggMixin:
         canvas.bind("<Button-1>", lambda event: self.fireworks.burst(event.x, event.y))
         button_frame = tk.Frame(dialog, bg="#F5F0E7")
         button_frame.pack(fill="x")
-        close_button = ttk.Button(button_frame, text="好耶，继续整理音乐", style="Accent.TButton", command=self._close_easter_egg)
+        close_button = ttk.Button(button_frame, text=tr("好耶，继续整理音乐"), style="Accent.TButton", command=self._close_easter_egg)
         close_button.pack(pady=self._px(9))
         close_button.focus_set()
         dialog.protocol("WM_DELETE_WINDOW", self._close_easter_egg)
@@ -60,7 +61,7 @@ class EasterEggMixin:
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         dialog.grab_set()
-        self.status_var.set("你发现了隐藏彩蛋：水友驱动开发 · 点击画面可追加烟花")
+        self.status_var.set(tr("你发现了隐藏彩蛋：水友驱动开发 · 点击画面可追加烟花"))
 
     def _close_easter_egg(self) -> None:
         if self.fireworks:

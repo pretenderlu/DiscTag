@@ -11,6 +11,7 @@ from typing import Callable
 import requests
 
 from . import __version__
+from .i18n import tr
 
 
 class UpdateError(RuntimeError):
@@ -122,9 +123,9 @@ def _fetch_stream(
                 if progress:
                     progress(downloaded, total)
     if info.size and downloaded != info.size:
-        raise UpdateError("更新包下载不完整，请重试。")
+        raise UpdateError(tr("更新包下载不完整，请重试。"))
     if digest.hexdigest() != info.sha256.lower():
-        raise UpdateError("更新包校验失败，已阻止安装。")
+        raise UpdateError(tr("更新包校验失败，已阻止安装。"))
 
 
 def download_update(
@@ -133,9 +134,9 @@ def download_update(
     progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     if not info.download_url:
-        raise UpdateError("该版本没有可自动安装的 Windows 安装包。")
+        raise UpdateError(tr("该版本没有可自动安装的 Windows 安装包。"))
     if not info.sha256:
-        raise UpdateError("该版本缺少安装包校验信息，请前往发布页手动下载。")
+        raise UpdateError(tr("该版本缺少安装包校验信息，请前往发布页手动下载。"))
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".download")
     urls = [info.download_url, info.download_url]
@@ -154,8 +155,8 @@ def download_update(
             raise
         except Exception as exc:
             if not _is_retryable(exc):
-                raise UpdateError(f"下载失败：{exc}") from exc
+                raise UpdateError(tr("下载失败：{0}", exc)) from exc
             last_error = exc
         finally:
             temporary.unlink(missing_ok=True)
-    raise UpdateError(f"下载失败：{last_error}")
+    raise UpdateError(tr("下载失败：{0}", last_error))

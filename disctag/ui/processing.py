@@ -15,6 +15,7 @@ from ..audio import (
     output_directory,
     output_path,
 )
+from ..i18n import tr
 from ..jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING, ConversionJob
 from ..models import ConversionResult, renumber_tracks
 from .queue_window import QueueWindow
@@ -22,14 +23,14 @@ from .queue_window import QueueWindow
 
 class ProcessingMixin:
     def _choose_output(self) -> None:
-        selected = filedialog.askdirectory(title="选择输出根目录", initialdir=self.output_var.get() or str(Path.home()))
+        selected = filedialog.askdirectory(title=tr("选择输出根目录"), initialdir=self.output_var.get() or str(Path.home()))
         if selected:
             self.output_var.set(selected)
 
     def _open_output(self) -> None:
         path = self.last_output or Path(self.output_var.get()).expanduser()
         if not path.is_dir():
-            messagebox.showinfo("目录尚不存在", "完成一次处理后，即可在这里打开输出目录。", parent=self.root)
+            messagebox.showinfo(tr("目录尚不存在"), tr("完成一次处理后，即可在这里打开输出目录。"), parent=self.root)
             return
         if sys.platform == "win32":
             os.startfile(path)
@@ -42,35 +43,35 @@ class ProcessingMixin:
         self.quality_combo.configure(state="readonly" if self.format_var.get() == "mp3" else "disabled")
         if not self.converting:
             if self.format_var.get() == "wav":
-                self.status_var.set("保留 WAV：不重新编码，标签写入 RIFF ID3 块，并另存 cover.jpg；播放器兼容性可能不同")
+                self.status_var.set(tr("保留 WAV：不重新编码，标签写入 RIFF ID3 块，并另存 cover.jpg；播放器兼容性可能不同"))
             else:
-                self.status_var.set("就绪")
+                self.status_var.set(tr("就绪"))
 
     def _prepare_job(self) -> ConversionJob | None:
         """Validates the current album and snapshots it into a job; shows a message and returns None if not ready."""
         if not self.sources:
-            messagebox.showwarning("缺少 WAV", "请先选择包含 WAV 音轨的文件夹。", parent=self.root)
+            messagebox.showwarning(tr("缺少 WAV"), tr("请先选择包含 WAV 音轨的文件夹。"), parent=self.root)
             return None
         if not self.album:
-            messagebox.showwarning("缺少专辑资料", "请搜索并选择专辑，或使用手动模式。", parent=self.root)
+            messagebox.showwarning(tr("缺少专辑资料"), tr("请搜索并选择专辑，或使用手动模式。"), parent=self.root)
             return None
         if len(self.sources) != len(self.album.tracks):
-            messagebox.showwarning("曲目数量不一致", "请使用时长匹配、手动插入缺曲、重新选择专辑，或改用手动模式。", parent=self.root)
+            messagebox.showwarning(tr("曲目数量不一致"), tr("请使用时长匹配、手动插入缺曲、重新选择专辑，或改用手动模式。"), parent=self.root)
             return None
         if any(track.origin == "auto-manual" for track in self.album.tracks):
-            messagebox.showwarning("缺曲仍待确认", "请查阅实体 CD 曲目表，双击“待确认”行填写真实歌名并保存，然后再处理。", parent=self.root)
+            messagebox.showwarning(tr("缺曲仍待确认"), tr("请查阅实体 CD 曲目表，双击“待确认”行填写真实歌名并保存，然后再处理。"), parent=self.root)
             return None
         if not self.album_var.get().strip() or not self.artist_var.get().strip():
-            messagebox.showwarning("资料不完整", "专辑名称和歌手名称不能为空。", parent=self.root)
+            messagebox.showwarning(tr("资料不完整"), tr("专辑名称和歌手名称不能为空。"), parent=self.root)
             return None
         if not self.output_var.get().strip():
-            messagebox.showwarning("缺少输出目录", "请选择输出根目录。", parent=self.root)
+            messagebox.showwarning(tr("缺少输出目录"), tr("请选择输出根目录。"), parent=self.root)
             return None
         if self.format_var.get() != "wav":
             try:
                 find_ffmpeg()
             except Exception as exc:
-                messagebox.showerror("FFmpeg 不可用", str(exc), parent=self.root)
+                messagebox.showerror(tr("FFmpeg 不可用"), str(exc), parent=self.root)
                 return None
         album = copy.deepcopy(self.album)
         album.title = self.album_var.get().strip()
@@ -85,7 +86,7 @@ class ProcessingMixin:
         if self.cover_data:
             existing.append(directory / "cover.jpg")
         if any(path.exists() for path in existing):
-            overwrite = messagebox.askyesno("确认覆盖", "输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？", parent=self.root)
+            overwrite = messagebox.askyesno(tr("确认覆盖"), tr("输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？"), parent=self.root)
             if not overwrite:
                 return None
         embed_cover, embed_max_size = self._cover_embed_choice()
@@ -107,8 +108,8 @@ class ProcessingMixin:
         replaced = self.job_queue.add(job)
         self._refresh_queue_view()
         position = self.job_queue.jobs.index(job) + 1
-        action = "已更新队列中的" if replaced else "已加入队列"
-        self.status_var.set(f"{action}《{job.title}》（第 {position} 项）· 可以导入下一张 CD")
+        action = tr("已更新队列中的") if replaced else tr("已加入队列")
+        self.status_var.set(tr("{0}《{1}》（第 {2} 项）· 可以导入下一张 CD", action, job.title, position))
         return True
 
     def _add_to_queue(self) -> None:
@@ -132,7 +133,7 @@ class ProcessingMixin:
         self.converting = True
         self.cancel_event = threading.Event()
         self.queue_run_jobs = []
-        self.convert_button.configure(text="取消处理", command=self._cancel_conversion)
+        self.convert_button.configure(text=tr("取消处理"), command=self._cancel_conversion)
         self._run_next_job()
 
     def _run_next_job(self) -> None:
@@ -149,7 +150,7 @@ class ProcessingMixin:
         self.progress_var.set(0)
         self.progress.configure(maximum=len(job.sources))
         prefix = self._job_prefix(job)
-        self.status_var.set(f"{prefix}正在准备处理《{job.title}》…")
+        self.status_var.set(tr("{0}正在准备处理《{1}》…", prefix, job.title))
         cancel = self.cancel_event
 
         def progress(current: int, total: int, text: str):
@@ -173,7 +174,7 @@ class ProcessingMixin:
         if self.converting and self.cancel_event is not None and not self.cancel_event.is_set():
             self.cancel_event.set()
             self.convert_button.configure(state="disabled")
-            self.status_var.set("正在取消，当前曲目停止后结束；队列中其余专辑会保留…")
+            self.status_var.set(tr("正在取消，当前曲目停止后结束；队列中其余专辑会保留…"))
 
     def _conversion_progress(self, current: int, _total: int, text: str) -> None:
         if self.converting:
@@ -198,7 +199,7 @@ class ProcessingMixin:
         self.conversion_thread = None
         self.current_job = None
         self.queue_run_jobs = []
-        self.convert_button.configure(text="开始处理", command=self._convert, state="normal")
+        self.convert_button.configure(text=tr("开始处理"), command=self._convert, state="normal")
         self._refresh_queue_view()
         self._save_settings()
         if len(jobs) == 1:
@@ -209,48 +210,48 @@ class ProcessingMixin:
     def _report_single_job(self, job: ConversionJob) -> None:
         result = job.result
         if job.status == FAILED or result is None:
-            self.status_var.set("处理失败")
-            messagebox.showerror("处理失败", job.message, parent=self.root)
+            self.status_var.set(tr("处理失败"))
+            messagebox.showerror(tr("处理失败"), job.message, parent=self.root)
         elif result.cancelled:
-            self.status_var.set(f"已取消 · 已完成 {len(result.converted_files)} 首")
+            self.status_var.set(tr("已取消 · 已完成 {0} 首", len(result.converted_files)))
             messagebox.showinfo(
-                "已取消处理",
-                f"已完成 {len(result.converted_files)} 首，其余曲目未处理。\n\n{result.output_directory}",
+                tr("已取消处理"),
+                tr("已完成 {0} 首，其余曲目未处理。\n\n{1}", len(result.converted_files), result.output_directory),
                 parent=self.root,
             )
         elif result.failures:
             self.progress_var.set(len(job.sources))
-            details = "\n".join(f"{failure.source.name}：{failure.message}" for failure in result.failures[:6])
-            self.status_var.set(f"完成 {len(result.converted_files)} 首，失败 {len(result.failures)} 首")
-            messagebox.showwarning("部分曲目处理失败", f"成功 {len(result.converted_files)} 首，失败 {len(result.failures)} 首。\n\n{details}", parent=self.root)
+            details = "\n".join(tr("{0}：{1}", failure.source.name, failure.message) for failure in result.failures[:6])
+            self.status_var.set(tr("完成 {0} 首，失败 {1} 首", len(result.converted_files), len(result.failures)))
+            messagebox.showwarning(tr("部分曲目处理失败"), tr("成功 {0} 首，失败 {1} 首。\n\n{2}", len(result.converted_files), len(result.failures), details), parent=self.root)
         else:
             self.progress_var.set(len(job.sources))
-            self.status_var.set(f"处理完成 · {result.output_directory}")
-            messagebox.showinfo("处理完成", f"已生成 {len(result.converted_files)} 首音乐，标签与封面处理完成。\n\n{result.output_directory}", parent=self.root)
+            self.status_var.set(tr("处理完成 · {0}", result.output_directory))
+            messagebox.showinfo(tr("处理完成"), tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory), parent=self.root)
 
     def _report_queue(self, jobs: list[ConversionJob]) -> None:
         done = sum(job.status == DONE for job in jobs)
         problems = [job for job in jobs if job.status in {PARTIAL, FAILED}]
         cancelled = any(job.status == CANCELLED for job in jobs)
         remaining = self.job_queue.pending_count()
-        summary = f"完成 {done} 张"
+        summary = tr("完成 {0} 张", done)
         if problems:
-            summary += f"，{len(problems)} 张有问题"
+            summary += tr("，{0} 张有问题", len(problems))
         if cancelled:
-            summary += f"，已取消（队列中还剩 {remaining} 张）"
-        self.status_var.set(f"队列处理结束 · {summary}")
-        details = "\n".join(f"《{job.title}》：{job.status_label} · {job.message}" for job in problems[:8])
-        text = f"本次处理了 {len(jobs)} 张专辑：{summary}。"
+            summary += tr("，已取消（队列中还剩 {0} 张）", remaining)
+        self.status_var.set(tr("队列处理结束 · {0}", summary))
+        details = "\n".join(tr("《{0}》：{1} · {2}", job.title, job.status_label, job.message) for job in problems[:8])
+        text = tr("本次处理了 {0} 张专辑：{1}。", len(jobs), summary)
         if details:
-            text += f"\n\n{details}\n\n可在“队列”中查看并重试。"
+            text += tr("\n\n{0}\n\n可在“队列”中查看并重试。", details)
         if problems:
-            messagebox.showwarning("队列处理结束", text, parent=self.root)
+            messagebox.showwarning(tr("队列处理结束"), text, parent=self.root)
         else:
-            messagebox.showinfo("队列处理结束", text, parent=self.root)
+            messagebox.showinfo(tr("队列处理结束"), text, parent=self.root)
 
     def _queue_button_text(self) -> str:
         active = sum(not job.finished for job in self.job_queue.jobs)
-        return f"队列 · {active}" if active else "队列"
+        return tr("队列 · {0}", active) if active else tr("队列")
 
     def _refresh_queue_view(self) -> None:
         button = getattr(self, "queue_button", None)

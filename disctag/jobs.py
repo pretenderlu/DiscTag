@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .i18n import tr
 from .models import AlbumMetadata, ConversionResult
 
 PENDING = "pending"
@@ -14,12 +15,12 @@ FAILED = "failed"
 CANCELLED = "cancelled"
 
 STATUS_LABELS = {
-    PENDING: "等待中",
-    RUNNING: "处理中",
-    DONE: "已完成",
-    PARTIAL: "部分失败",
-    FAILED: "失败",
-    CANCELLED: "已取消",
+    PENDING: tr("等待中"),
+    RUNNING: tr("处理中"),
+    DONE: tr("已完成"),
+    PARTIAL: tr("部分失败"),
+    FAILED: tr("失败"),
+    CANCELLED: tr("已取消"),
 }
 FORMAT_LABELS = {"wav": "WAV", "flac": "FLAC", "mp3": "MP3"}
 
@@ -64,13 +65,13 @@ class ConversionJob:
         converted = len(result.converted_files)
         if result.cancelled:
             self.status = CANCELLED
-            self.message = f"已完成 {converted} 首后取消"
+            self.message = tr("已完成 {0} 首后取消", converted)
         elif result.failures:
             self.status = PARTIAL
-            self.message = f"成功 {converted} 首，失败 {len(result.failures)} 首"
+            self.message = tr("成功 {0} 首，失败 {1} 首", converted, len(result.failures))
         else:
             self.status = DONE
-            self.message = f"{converted} 首"
+            self.message = tr("{0} 首", converted)
 
     def fail(self, error: Exception) -> None:
         self.status = FAILED

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from .audio import wav_duration
+from .i18n import tr
 
 
 class AudioPreview:
@@ -45,7 +46,7 @@ class AudioPreview:
                     stderr=subprocess.DEVNULL,
                 )
         except (OSError, RuntimeError) as exc:
-            raise RuntimeError(f"无法播放 {path.name}：{exc}") from exc
+            raise RuntimeError(tr("无法播放 {0}：{1}", path.name, exc)) from exc
         self.path = path
         self.started = time.monotonic()
         self.duration = wav_duration(path) or 0.0

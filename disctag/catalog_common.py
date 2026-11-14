@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 import requests
 from PIL import Image, ImageOps
 
+from .i18n import tr
 from .models import AlbumSummary
 
 MAX_COVER_BYTES = 25 * 1024 * 1024
@@ -28,12 +29,12 @@ def fetch_cover(url: str, size: int, headers: dict, timeout: float) -> bytes:
     try:
         response.raise_for_status()
         if int(response.headers.get("Content-Length", 0) or 0) > MAX_COVER_BYTES:
-            raise CoverTooLarge("封面文件过大。")
+            raise CoverTooLarge(tr("封面文件过大。"))
         data = bytearray()
         for chunk in response.iter_content(256 * 1024):
             data.extend(chunk)
             if len(data) > MAX_COVER_BYTES:
-                raise CoverTooLarge("封面文件过大。")
+                raise CoverTooLarge(tr("封面文件过大。"))
     finally:
         response.close()
     return to_jpeg(bytes(data), size)

@@ -7,6 +7,7 @@ import requests
 
 from . import __version__
 from .catalog_common import match_score as _match_score
+from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 
@@ -21,7 +22,7 @@ class AppleMusicWebClient:
     def search_albums(self, album: str, artist: str = "") -> list[AlbumSummary]:
         term = " ".join(part.strip() for part in (artist, album) if part.strip())
         if not term:
-            raise AppleMusicWebError("请输入专辑名称。")
+            raise AppleMusicWebError(tr("请输入专辑名称。"))
         root = self._get_page_data("https://music.apple.com/cn/search", {"term": term})
         albums = {}
         for section in root.get("sections", []):
@@ -64,7 +65,7 @@ class AppleMusicWebClient:
             None,
         )
         if header is None:
-            raise AppleMusicWebError("Apple Music 没有返回这张专辑的详细资料。")
+            raise AppleMusicWebError(tr("Apple Music 没有返回这张专辑的详细资料。"))
         artist = _item_artist(header)
         songs = [
             item
@@ -88,7 +89,7 @@ class AppleMusicWebClient:
             for index, item in enumerate(songs, 1)
         ]
         if not tracks:
-            raise AppleMusicWebError("这张专辑没有可匹配的曲目。")
+            raise AppleMusicWebError(tr("这张专辑没有可匹配的曲目。"))
         quaternary = header.get("quaternaryTitle", "")
         year_match = re.search(r"(?:19|20)\d{2}", quaternary)
         genre = quaternary.split("·", 1)[0].strip() if quaternary else ""
@@ -118,13 +119,13 @@ class AppleMusicWebClient:
             response.encoding = "utf-8"
             match = re.search(r'<script[^>]+id="serialized-server-data"[^>]*>(.*?)</script>', response.text, re.S)
             if not match:
-                raise AppleMusicWebError("Apple Music 页面没有返回可识别的专辑数据。")
+                raise AppleMusicWebError(tr("Apple Music 页面没有返回可识别的专辑数据。"))
             payload = json.loads(match.group(1))
             return payload["data"][0]["data"]
         except requests.RequestException as exc:
-            raise AppleMusicWebError(f"无法连接 Apple Music：{exc}") from exc
+            raise AppleMusicWebError(tr("无法连接 Apple Music：{0}", exc)) from exc
         except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise AppleMusicWebError("Apple Music 页面结构发生了变化，暂时无法解析。") from exc
+            raise AppleMusicWebError(tr("Apple Music 页面结构发生了变化，暂时无法解析。")) from exc
 
 
 def _item_title(item: dict) -> str:
@@ -134,18 +135,18 @@ def _item_title(item: dict) -> str:
     for link in item.get("titleLinks") or []:
         if link.get("title"):
             return str(link["title"])
-    return "未知专辑"
+    return tr("未知专辑")
 
 
 def _item_artist(item: dict) -> str:
     links = item.get("subtitleLinks") or item.get("tertiaryLinks") or []
     names = [str(link["title"]) for link in links if link.get("title")]
     if names:
-        return "、".join(names)
+        return tr("、").join(names)
     subtitle = item.get("subtitle") or item.get("subheadline") or item.get("artistName") or ""
     if "·" in subtitle:
         subtitle = subtitle.split("·")[-1]
-    return subtitle.strip() or "未知歌手"
+    return subtitle.strip() or tr("未知歌手")
 
 
 def _artwork_url(item: dict) -> str:

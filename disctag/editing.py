@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .audio import clean_track_title
+from .i18n import tr
 from .matching import align_tracks_by_duration
 from .models import AlbumMetadata, TrackMetadata, renumber_tracks
 
@@ -27,10 +28,10 @@ def can_insert(album: AlbumMetadata | None, source_count: int) -> bool:
 
 def fill_missing_by_duration(album: AlbumMetadata, durations_ms: list[float | None], artist: str) -> list[int]:
     if any(track.disc_count > 1 or track.disc_number != 1 for track in album.tracks):
-        raise EditError("多碟专辑请按实体 CD 曲目表手动插入缺曲")
+        raise EditError(tr("多碟专辑请按实体 CD 曲目表手动插入缺曲"))
     aligned = align_tracks_by_duration(durations_ms, album.tracks)
     if aligned is None:
-        raise EditError("时长信息不足或差异过大，无法可靠对齐；请按实体 CD 曲目表手动插入")
+        raise EditError(tr("时长信息不足或差异过大，无法可靠对齐；请按实体 CD 曲目表手动插入"))
     completed = []
     missing_positions = []
     for index, track in enumerate(aligned):
@@ -39,7 +40,7 @@ def fill_missing_by_duration(album: AlbumMetadata, durations_ms: list[float | No
             if reference is None:
                 reference = next((item for item in reversed(aligned[:index]) if item is not None), None)
             track = TrackMetadata(
-                title=f"待确认曲目 {index + 1:02d}",
+                title=tr("待确认曲目 {0:02d}", index + 1),
                 artist=artist,
                 track_number=index + 1,
                 track_count=len(aligned),
@@ -104,21 +105,21 @@ def duration_mismatch(local_seconds: float | None, track: TrackMetadata | None) 
 
 def album_info_text(album: AlbumMetadata, region: str) -> str:
     manual_count = sum(track.origin in MANUAL_ORIGINS for track in album.tracks)
-    count_text = f"{len(album.tracks)} 首"
+    count_text = tr("{0} 首", len(album.tracks))
     if album.collection_id is not None and manual_count:
-        count_text += f"（{len(album.tracks) - manual_count} 首在线 + {manual_count} 首手动）"
-    source = region or "手动模式"
-    return f"{source} · {count_text} · {album.genre or '未分类'} · {album.release_date or '日期未知'}"
+        count_text += tr("（{0} 首在线 + {1} 首手动）", len(album.tracks) - manual_count, manual_count)
+    source = region or tr("手动模式")
+    return f"{source} · {count_text} · {album.genre or tr('未分类')} · {album.release_date or tr('日期未知')}"
 
 
 def match_status(source_count: int, album: AlbumMetadata | None, duration_warnings: int) -> str:
     if not source_count:
-        return "先导入 WAV 文件"
+        return tr("先导入 WAV 文件")
     if not album:
-        return f"已导入 {source_count} 首 · 尚未匹配专辑"
+        return tr("已导入 {0} 首 · 尚未匹配专辑", source_count)
     if source_count > len(album.tracks):
-        return f"本地多 {source_count - len(album.tracks)} 首 · 请对照实体 CD，使用时长匹配或插入缺曲"
+        return tr("本地多 {0} 首 · 请对照实体 CD，使用时长匹配或插入缺曲", source_count - len(album.tracks))
     if source_count < len(album.tracks):
-        return f"本地少 {len(album.tracks) - source_count} 首 · 请核对实体 CD 版本或重新匹配"
-    warning = " · 橙行时长不同" if duration_warnings else ""
-    return f"{source_count} 首已对应 · 双击编辑 / 上下移动{warning}"
+        return tr("本地少 {0} 首 · 请核对实体 CD 版本或重新匹配", len(album.tracks) - source_count)
+    warning = tr(" · 橙行时长不同") if duration_warnings else ""
+    return tr("{0} 首已对应 · 双击编辑 / 上下移动{1}", source_count, warning)

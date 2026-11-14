@@ -19,6 +19,7 @@ from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 from PIL import Image, ImageOps
 
+from .i18n import tr
 from .models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMetadata, renumber_tracks
 
 
@@ -53,7 +54,7 @@ def find_ffmpeg() -> str:
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
         return system_ffmpeg
-    raise AudioError("未找到 FFmpeg。请安装 FFmpeg，或重新获取包含 FFmpeg 的 DiscTag 安装包。")
+    raise AudioError(tr("未找到 FFmpeg。请安装 FFmpeg，或重新获取包含 FFmpeg 的 DiscTag 安装包。"))
 
 
 def natural_key(path: Path) -> list[object]:
@@ -80,7 +81,7 @@ def clean_track_title(path: Path) -> str:
     return title or path.stem
 
 
-def safe_component(value: str, fallback: str = "未命名") -> str:
+def safe_component(value: str, fallback: str = tr("未命名")) -> str:
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", value).strip().rstrip(".")
     value = re.sub(r"\s+", " ", value)
     if not value:
@@ -91,8 +92,8 @@ def safe_component(value: str, fallback: str = "未命名") -> str:
 
 
 def output_directory(root: Path, album: AlbumMetadata) -> Path:
-    artist = safe_component(album.album_artist or album.artist, "未知歌手")
-    title = safe_component(album.title, "未知专辑")
+    artist = safe_component(album.album_artist or album.artist, tr("未知歌手"))
+    title = safe_component(album.title, tr("未知专辑"))
     return root.expanduser() / artist / title
 
 
@@ -118,11 +119,11 @@ def convert_album(
     cancel: threading.Event | None = None,
 ) -> ConversionResult:
     if len(sources) != len(album.tracks):
-        raise AudioError("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。")
+        raise AudioError(tr("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。"))
     if any(track.origin == "auto-manual" for track in album.tracks):
-        raise AudioError("仍有待确认的缺曲，请按实体 CD 曲目表填写真实歌名并保存。")
+        raise AudioError(tr("仍有待确认的缺曲，请按实体 CD 曲目表填写真实歌名并保存。"))
     if output_format not in {"wav", "flac", "mp3"}:
-        raise AudioError("不支持的输出格式。")
+        raise AudioError(tr("不支持的输出格式。"))
     renumber_tracks(album.tracks)
     ffmpeg = None if output_format == "wav" else find_ffmpeg()
     directory = output_directory(output_root, album)
@@ -133,7 +134,7 @@ def convert_album(
         or (destination.exists() and any(source.exists() and destination.samefile(source) for source in sources))
         for destination in destinations
     ):
-        raise AudioError("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。")
+        raise AudioError(tr("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。"))
     directory.mkdir(parents=True, exist_ok=True)
     result = ConversionResult(output_directory=directory)
     embedded = embedded_cover(cover_data, embed_max_size) if cover_data and embed_cover else None
@@ -145,8 +146,8 @@ def convert_album(
                 result.cancelled = True
                 break
             if progress:
-                action = "正在整理" if output_format == "wav" else "正在转换"
-                progress(index - 1, total, f"{action}：{track.title}")
+                action = tr("正在整理") if output_format == "wav" else tr("正在转换")
+                progress(index - 1, total, tr("{0}：{1}", action, track.title))
             temporary = Path(staging) / destination.name
             try:
                 _convert_file(ffmpeg, source, temporary, output_format, mp3_quality, cancel)
@@ -164,7 +165,7 @@ def convert_album(
             except Exception as exc:
                 result.failures.append(ConversionFailure(source=source, message=str(exc)))
             if progress:
-                progress(index, total, f"已完成 {index}/{total}")
+                progress(index, total, tr("已完成 {0}/{1}", index, total))
 
         if cover_data and result.converted_files:
             temporary_cover = Path(staging) / "cover.jpg"
@@ -235,9 +236,9 @@ def _convert_file(
                     break
                 except subprocess.TimeoutExpired:
                     if cancel is not None and cancel.is_set():
-                        raise ConversionCancelled("已取消处理。") from None
+                        raise ConversionCancelled(tr("已取消处理。")) from None
                     if time.monotonic() > deadline:
-                        raise AudioError("FFmpeg 处理超时。") from None
+                        raise AudioError(tr("FFmpeg 处理超时。")) from None
         finally:
             if process.poll() is None:
                 process.kill()
@@ -245,7 +246,7 @@ def _convert_file(
         if returncode != 0:
             errors.seek(0)
             message = errors.read().decode("utf-8", "replace").strip().splitlines()
-            raise AudioError(message[-1] if message else f"FFmpeg 退出代码：{returncode}")
+            raise AudioError(message[-1] if message else tr("FFmpeg 退出代码：{0}", returncode))
 
 
 def _tag_flac(path: Path, album: AlbumMetadata, track: TrackMetadata, cover_data: bytes | None) -> None:

@@ -10,6 +10,7 @@ import requests
 
 from . import __version__
 from .catalog_common import fetch_cover, match_score
+from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
 API = "https://musicbrainz.org/ws/2"
@@ -49,7 +50,7 @@ class MusicBrainzClient:
 
     def search_albums(self, album: str, artist: str = "") -> list[AlbumSummary]:
         if not album.strip():
-            raise MusicBrainzError("请输入专辑名称。")
+            raise MusicBrainzError(tr("请输入专辑名称。"))
         query = f'release:"{_escape(album)}"'
         if artist.strip():
             query += f' AND artist:"{_escape(artist)}"'
@@ -86,11 +87,11 @@ class MusicBrainzClient:
         if medium is not None:
             selected = [entry for entry in media if int(entry.get("position", 0)) == medium]
             if not selected:
-                raise MusicBrainzError("没有找到匹配的光盘。")
+                raise MusicBrainzError(tr("没有找到匹配的光盘。"))
         else:
             selected = media
         disc_count = len(media) or 1
-        album_artist = _credit(data.get("artist-credit")) or "未知歌手"
+        album_artist = _credit(data.get("artist-credit")) or tr("未知歌手")
         tracks = []
         for entry in selected:
             disc_number = int(entry.get("position", 1)) if disc_count > 1 else 1
@@ -108,7 +109,7 @@ class MusicBrainzClient:
                     )
                 )
         if not tracks:
-            raise MusicBrainzError("这张唱片没有可匹配的曲目。")
+            raise MusicBrainzError(tr("这张唱片没有可匹配的曲目。"))
         group = data.get("release-group") or {}
         if (data.get("cover-art-archive") or {}).get("front"):
             artwork_url = f"{COVER_ART}/release/{release_id}/front"
@@ -130,7 +131,7 @@ class MusicBrainzClient:
 
     def download_cover(self, artwork_url: str, size: int) -> bytes:
         if not artwork_url:
-            raise MusicBrainzError("这张唱片没有可用封面。")
+            raise MusicBrainzError(tr("这张唱片没有可用封面。"))
         # Cover Art Archive 提供 250/500/1200 缩略图；更大尺寸需要原图，原图可能是超大扫描件。
         thumbnail = f"{artwork_url}-{500 if size <= 500 else 1200}"
         urls = [artwork_url, thumbnail] if size > 1200 else [thumbnail, artwork_url]
@@ -140,7 +141,7 @@ class MusicBrainzClient:
                 return fetch_cover(url, size, {"User-Agent": _user_agent()}, self.timeout)
             except (requests.RequestException, OSError) as exc:
                 last_error = exc
-        raise MusicBrainzError(f"封面下载失败：{last_error}")
+        raise MusicBrainzError(tr("封面下载失败：{0}", last_error))
 
     def _get(self, path: str, params: dict) -> dict:
         last_error = ""
@@ -154,20 +155,20 @@ class MusicBrainzClient:
                     timeout=self.timeout,
                 )
             except requests.RequestException as exc:
-                raise MusicBrainzError(f"无法连接 MusicBrainz：{exc}") from exc
+                raise MusicBrainzError(tr("无法连接 MusicBrainz：{0}", exc)) from exc
             if response.status_code in (429, 503):
-                last_error = "MusicBrainz 服务器繁忙，请稍后再试。"
+                last_error = tr("MusicBrainz 服务器繁忙，请稍后再试。")
                 time.sleep(1.5 * (attempt + 1))
                 continue
             if response.status_code == 404:
-                raise MusicBrainzError("MusicBrainz 没有找到对应的唱片。")
+                raise MusicBrainzError(tr("MusicBrainz 没有找到对应的唱片。"))
             try:
                 response.raise_for_status()
                 data = response.json()
             except requests.RequestException as exc:
-                raise MusicBrainzError(f"无法连接 MusicBrainz：{exc}") from exc
+                raise MusicBrainzError(tr("无法连接 MusicBrainz：{0}", exc)) from exc
             except ValueError as exc:
-                raise MusicBrainzError("MusicBrainz 返回了无法识别的数据。") from exc
+                raise MusicBrainzError(tr("MusicBrainz 返回了无法识别的数据。")) from exc
             if isinstance(data, dict) and data.get("error"):
                 raise MusicBrainzError(str(data["error"]))
             return data
@@ -224,8 +225,8 @@ def _summary(item: dict, medium: int | None = None, medium_total: int | None = N
     ) if part]
     return AlbumSummary(
         collection_id=item["id"],
-        title=item.get("title", "未知专辑"),
-        artist=_credit(item.get("artist-credit")) or "未知歌手",
+        title=item.get("title", tr("未知专辑")),
+        artist=_credit(item.get("artist-credit")) or tr("未知歌手"),
         release_date=item.get("date", ""),
         track_count=int(track_count or 0),
         country=item.get("country") or "—",
