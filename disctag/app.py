@@ -11,6 +11,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 from .discogs import DiscogsClient
+from .settings import load_settings
 from .itunes import COVER_SIZES, ITunesClient
 from .jobs import ConversionJob, JobQueue
 from .models import AlbumMetadata, AlbumSummary
@@ -230,10 +231,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self.root.destroy()
 
     def _load_settings(self) -> dict:
-        try:
-            return json.loads(_settings_path().read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
+        return load_settings()
 
     def _save_settings(self) -> None:
         self._save_discogs_token()

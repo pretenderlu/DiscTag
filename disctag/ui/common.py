@@ -1,6 +1,8 @@
 """Shared UI constants and helpers."""
 from __future__ import annotations
 
+from ..settings import settings_path
+
 import os
 import sys
 from pathlib import Path
@@ -31,18 +33,12 @@ SOURCE_HINTS = {
 
 
 def _resource_path(relative: str) -> Path:
-    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
     return root / relative
 
 
 def _settings_path() -> Path:
-    if sys.platform == "win32":
-        root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    elif sys.platform == "darwin":
-        root = Path.home() / "Library" / "Application Support"
-    else:
-        root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return root / "DiscTag" / "settings.json"
+    return settings_path()
 
 
 def _region_labels() -> list[str]:

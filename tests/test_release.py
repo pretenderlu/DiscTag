@@ -28,5 +28,13 @@ class ReleaseConsistencyTests(unittest.TestCase):
         self.assertIn(f"ffmpeg-{version}.tar.xz", notices)
 
 
+
+class ResourcePathTests(unittest.TestCase):
+    def test_assets_resolve_from_source_checkout(self):
+        from disctag.ui.common import _resource_path
+
+        self.assertTrue(_resource_path("assets/icon.png").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
