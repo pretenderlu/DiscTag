@@ -47,7 +47,16 @@ jobs:
           codesign --verify --deep --strict --verbose=2 dist/DiscTag.app
 
       - name: Create DMG
-        run: hdiutil create -volname DiscTag -srcfolder dist/DiscTag.app -ov -format UDZO "dist/DiscTag-macOS-${{ matrix.suffix }}.dmg"
+        # 托管 macOS runner 上 hdiutil 偶尔报 “Resource busy”（后台扫描占用文件），重试即可。
+        run: |
+          for attempt in 1 2 3; do
+            if hdiutil create -volname DiscTag -srcfolder dist/DiscTag.app -ov -format UDZO "dist/DiscTag-macOS-${{ matrix.suffix }}.dmg"; then
+              exit 0
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying..."
+            sleep $((attempt * 5))
+          done
+          exit 1
 
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
