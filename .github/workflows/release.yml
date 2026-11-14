@@ -133,8 +133,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -l packages
-          gh release create "$GITHUB_REF_NAME" packages/* \
+          # 构件可能带子目录（如 installer/），只上传其中的文件。
+          mapfile -t files < <(find packages -type f | sort)
+          printf '%s\n' "${files[@]}"
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --draft \
             --title "DiscTag $GITHUB_REF_NAME" \
