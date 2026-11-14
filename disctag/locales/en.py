@@ -186,7 +186,7 @@ EN = {
     "输出目录": "Output",
     "浏览": "Browse",
     "打开目录": "Open folder",
-    "保留 WAV": "Keep WAV",
+    "WAV 不转码": "WAV (as is)",
     "FLAC 无损": "FLAC lossless",
     # Processing
     "完成 {0} 张": "{0} done",
@@ -222,7 +222,7 @@ EN = {
     "处理失败": "Processing failed",
     "《{0}》：{1} · {2}": "“{0}”: {1} · {2}",
     "队列处理结束": "Queue finished",
-    "保留 WAV：不重新编码，标签写入 RIFF ID3 块，并另存 cover.jpg；播放器兼容性可能不同": "Keep WAV: no re-encoding; tags go into a RIFF ID3 chunk plus cover.jpg. Player support varies",
+    "WAV 不转码：输出仍为 WAV，只写入标签（RIFF ID3 块）并另存 cover.jpg；部分播放器可能读不到 WAV 标签": "WAV (as is): output stays WAV with tags in a RIFF ID3 chunk plus cover.jpg; some players may not read WAV tags",
     "已取消 · 已完成 {0} 首": "Cancelled · {0} tracks done",
     "已取消处理": "Processing cancelled",
     "已完成 {0} 首，其余曲目未处理。\n\n{1}": "{0} tracks were done; the rest were not processed.\n\n{1}",

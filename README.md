@@ -1,6 +1,6 @@
 # DiscTag
 
-DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 WAV 文件。它可以保留 WAV，也可以转换为 FLAC 或 MP3，并写入专辑资料与封面。
+DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 WAV 文件。它可以直接输出 WAV（不转码），也可以转换为 FLAC 或 MP3，并写入专辑资料与封面。
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 

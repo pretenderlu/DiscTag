@@ -44,7 +44,7 @@ class ProcessingMixin:
         self.quality_combo.configure(state="readonly" if self.format_var.get() == "mp3" else "disabled")
         if not self.converting:
             if self.format_var.get() == "wav":
-                self.status_var.set(tr("保留 WAV：不重新编码，标签写入 RIFF ID3 块，并另存 cover.jpg；播放器兼容性可能不同"))
+                self.status_var.set(tr("WAV 不转码：输出仍为 WAV，只写入标签（RIFF ID3 块）并另存 cover.jpg；部分播放器可能读不到 WAV 标签"))
             else:
                 self.status_var.set(tr("就绪"))
 

@@ -259,7 +259,7 @@ class LayoutMixin:
         ttk.Button(output_row, text=tr("打开目录"), command=self._open_output).pack(side="left", padx=(6, 0))
         action_row = ttk.Frame(output_card, style="Card.TFrame")
         action_row.pack(fill="x", pady=(10, 0))
-        ttk.Radiobutton(action_row, text=tr("保留 WAV"), value="wav", variable=self.format_var, command=self._format_changed).pack(side="left")
+        ttk.Radiobutton(action_row, text=tr("WAV 不转码"), value="wav", variable=self.format_var, command=self._format_changed).pack(side="left")
         ttk.Radiobutton(action_row, text=tr("FLAC 无损"), value="flac", variable=self.format_var, command=self._format_changed).pack(side="left", padx=(12, 0))
         ttk.Radiobutton(action_row, text="MP3", value="mp3", variable=self.format_var, command=self._format_changed).pack(side="left", padx=(12, 8))
         self.quality_combo = ttk.Combobox(action_row, textvariable=self.quality_var, values=("320 kbps", "V0"), state="readonly", width=10)
