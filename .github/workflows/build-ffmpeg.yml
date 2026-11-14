@@ -35,20 +35,20 @@ jobs:
             tar
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build minimal FFmpeg
         run: bash scripts/build_ffmpeg.sh "$PWD/ffmpeg-bin"
 
       - name: Upload FFmpeg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ffmpeg-windows-x64
           path: ffmpeg-bin/ffmpeg.exe
           if-no-files-found: error
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -74,7 +74,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install nasm
         run: brew install nasm
@@ -83,14 +83,14 @@ jobs:
         run: bash scripts/build_ffmpeg.sh "$PWD/ffmpeg-bin"
 
       - name: Upload FFmpeg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ffmpeg-macos-${{ matrix.suffix }}
           path: ffmpeg-bin/ffmpeg
           if-no-files-found: error
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 

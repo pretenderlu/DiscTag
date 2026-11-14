@@ -20,10 +20,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -50,7 +50,7 @@ jobs:
         run: hdiutil create -volname DiscTag -srcfolder dist/DiscTag.app -ov -format UDZO "dist/DiscTag-macOS-${{ matrix.suffix }}.dmg"
 
       - name: Upload macOS package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: DiscTag-macOS-${{ matrix.suffix }}
           path: dist/DiscTag-macOS-${{ matrix.suffix }}.dmg
