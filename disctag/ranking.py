@@ -101,4 +101,4 @@ def rank_results(results: list[AlbumSummary], fits: dict[tuple, DurationFit], lo
 
 
 def result_key(entry: AlbumSummary) -> tuple:
-    return entry.source, entry.country, entry.collection_id
+    return entry.source, entry.country, entry.collection_id, entry.medium

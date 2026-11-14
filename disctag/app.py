@@ -45,7 +45,8 @@ from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
 from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, renumber_tracks
 from .playback import AudioPreview
-from .ranking import candidates_to_verify, rank_results, result_key, verify_candidates
+from .musicbrainz import MusicBrainzClient, MusicBrainzError, toc_from_durations
+from .ranking import EXACT, DurationFit, candidates_to_verify, rank_results, result_key, verify_candidates
 from .rounded_panel import RoundedPanel
 from .rounded_style import apply_rounded_styles
 from .updates import download_update, check_for_updates
@@ -64,6 +65,14 @@ DANGER = "#B34452"
 REPOSITORY_URL = "https://github.com/pretenderlu/DiscTag"
 LATEST_RELEASE_URL = f"{REPOSITORY_URL}/releases/latest"
 COVER_EMBED_SIZES = (500, 800, 1000)
+SOURCE_ITUNES = "iTunes / Apple Music"
+SOURCE_DISCOGS = "Discogs"
+SOURCE_MUSICBRAINZ = "MusicBrainz"
+SOURCE_HINTS = {
+    SOURCE_ITUNES: "全部地区：美国、日本、中国大陆、中国香港、中国台湾。\n不同地区的专辑版本会分别保留。",
+    SOURCE_DISCOGS: "Discogs 收录实体唱片的地区版本、再版与目录号。\n需要个人令牌，请求频率受限。",
+    SOURCE_MUSICBRAINZ: "已导入 WAV 时会先按音轨时长识别光盘（TOC），可不填专辑名。\n✓ 表示与本地音轨吻合；数据来自 MusicBrainz 与 Cover Art Archive。",
+}
 
 
 class DiscTagApp:
@@ -89,6 +98,7 @@ class DiscTagApp:
         self.settings = self._load_settings()
         self.client = ITunesClient()
         self.discogs_client = DiscogsClient()
+        self.musicbrainz_client = MusicBrainzClient()
         self.preview = AudioPreview(self.root, self._playback_changed)
         self.sources: list[Path] = []
         self.source_durations: dict[Path, float | None] = {}
@@ -396,7 +406,7 @@ class DiscTagApp:
         self.metadata_source_combo = ttk.Combobox(
             left,
             textvariable=self.metadata_source_var,
-            values=("iTunes / Apple Music", "Discogs"),
+            values=(SOURCE_ITUNES, SOURCE_DISCOGS, SOURCE_MUSICBRAINZ),
             state="readonly",
         )
         self.metadata_source_combo.pack(fill="x", pady=(4, 6))
@@ -453,7 +463,7 @@ class DiscTagApp:
         self.results_tree.bind("<<TreeviewSelect>>", self._album_selected)
         self.region_hint_label = ttk.Label(
             left,
-            text="全部地区：美国、日本、中国大陆、中国香港、中国台湾。\n不同地区的专辑版本会分别保留。",
+            text=SOURCE_HINTS.get(self.metadata_source_var.get(), ""),
             style="Muted.Card.TLabel",
             justify="left",
             wraplength=self._px(360),
@@ -726,15 +736,18 @@ class DiscTagApp:
     def _search(self) -> None:
         if self.converting or self.updating:
             return
-        if not self.album_var.get().strip():
-            messagebox.showwarning("缺少专辑名称", "请先输入专辑名称。", parent=self.root)
-            return
         source = self.metadata_source_var.get()
+        if not self.album_var.get().strip() and not (source == SOURCE_MUSICBRAINZ and self.sources):
+            hint = "请先输入专辑名称。"
+            if source == SOURCE_MUSICBRAINZ:
+                hint = "请输入专辑名称，或先导入 WAV 以按音轨时长识别光盘。"
+            messagebox.showwarning("缺少专辑名称", hint, parent=self.root)
+            return
         region = self.region_var.get()
         album = self.album_var.get().strip()
         artist = self.artist_var.get().strip()
         token = self.discogs_token_var.get().strip()
-        if source == "Discogs" and not token:
+        if source == SOURCE_DISCOGS and not token:
             messagebox.showwarning("需要 Discogs 令牌", "请先点击“申请令牌”创建 Personal Access Token，再粘贴到令牌输入框。", parent=self.root)
             self.discogs_token_entry.focus_set()
             return
@@ -742,8 +755,10 @@ class DiscTagApp:
         self._invalidate_metadata_requests()
         request_id = self.search_request_id
         self.search_button.configure(state="disabled")
-        if source == "Discogs":
+        if source == SOURCE_DISCOGS:
             self.status_var.set("正在查询 Discogs 实体唱片曲库…")
+        elif source == SOURCE_MUSICBRAINZ:
+            self.status_var.set("正在查询 MusicBrainz…" if not self.sources else "正在按音轨时长在 MusicBrainz 识别光盘…")
         elif region == "ALL":
             self.status_var.set("正在并行查询全部地区…")
         elif region == "CN":
@@ -757,9 +772,11 @@ class DiscTagApp:
         ]
 
         def work():
-            if source == "Discogs":
+            if source == SOURCE_DISCOGS:
                 # Discogs 有请求频率限制，不逐个拉取详情核对时长。
                 return self.discogs_client.search_albums(album, artist, token), {}, {}
+            if source == SOURCE_MUSICBRAINZ:
+                return self._search_musicbrainz(album, artist, local_ms)
             results = self.client.search_albums(album, artist, region)
             if not local_ms:
                 return results, {}, {}
@@ -780,7 +797,7 @@ class DiscTagApp:
             self.album_cache = albums
             self.result_markers = {key: fit.marker for key, fit in fits.items() if fit.marker}
             self._show_results()
-            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source != "Discogs" and self.client.last_warnings else ""
+            warning = f"；{len(self.client.last_warnings)} 个地区查询失败" if source == SOURCE_ITUNES and self.client.last_warnings else ""
             exact = sum(marker == "✓" for marker in self.result_markers.values())
             fit_text = f"；{exact} 个版本与本地时长吻合（✓）" if exact else ""
             if not exact and any(marker == "≈" for marker in self.result_markers.values()):
@@ -789,17 +806,52 @@ class DiscTagApp:
             if results:
                 self.results_tree.selection_set("0")
                 self.results_tree.focus("0")
-            elif source != "Discogs" and self.client.last_warnings:
+            elif source == SOURCE_ITUNES and self.client.last_warnings:
                 messagebox.showwarning("地区查询失败", "\n".join(self.client.last_warnings), parent=self.root)
 
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
+
+    def _search_musicbrainz(self, album: str, artist: str, local_ms: list[float | None]):
+        """TOC lookup from the local WAV durations first, then a text search when an album name is given."""
+        results: list[AlbumSummary] = []
+        fits: dict[tuple, DurationFit] = {}
+        toc = toc_from_durations([duration / 1000 if duration else None for duration in local_ms])
+        toc_error: Exception | None = None
+        if toc:
+            try:
+                for entry in self.musicbrainz_client.lookup_toc(toc, album, artist):
+                    fits[result_key(entry)] = DurationFit(EXACT)
+                    results.append(entry)
+            except MusicBrainzError as exc:
+                toc_error = exc
+        if album:
+            matched = {entry.collection_id for entry in results}
+            results.extend(entry for entry in self.musicbrainz_client.search_albums(album, artist) if entry.collection_id not in matched)
+        elif toc_error is not None:
+            raise toc_error
+        return rank_results(results, fits, len(local_ms)), fits, {}
+
+    def _load_album(self, summary: AlbumSummary, token: str) -> AlbumMetadata:
+        if summary.source == "discogs":
+            return self.discogs_client.get_album(summary.collection_id, token)
+        if summary.source == "musicbrainz":
+            return self.musicbrainz_client.get_album(summary.collection_id, summary.medium)
+        return self.client.get_album(summary.collection_id, summary.country)
+
+    def _download_cover(self, source: str, artwork_url: str, size: int, token: str) -> bytes:
+        if source == "discogs":
+            return self.discogs_client.download_cover(artwork_url, size, token)
+        if source == "musicbrainz":
+            return self.musicbrainz_client.download_cover(artwork_url, size)
+        return self.client.download_cover(artwork_url, size)
 
     def _show_results(self) -> None:
         self.results_tree.delete(*self.results_tree.get_children())
         for index, entry in enumerate(self.results):
             marker = self.result_markers.get(result_key(entry), "")
             region_text = f"{marker} {entry.country}" if marker else entry.country
-            self.results_tree.insert("", "end", iid=str(index), values=(region_text, entry.title, entry.artist))
+            title = f"{entry.title} · {entry.detail}" if entry.detail else entry.title
+            self.results_tree.insert("", "end", iid=str(index), values=(region_text, title, entry.artist))
 
     def _search_failed(self, error: Exception, request_id: int) -> None:
         if request_id != self.search_request_id:
@@ -835,15 +887,10 @@ class DiscTagApp:
         def work():
             if cached is not None:
                 album = copy.deepcopy(cached)
-            elif summary.source == "discogs":
-                album = self.discogs_client.get_album(summary.collection_id, token)
             else:
-                album = self.client.get_album(summary.collection_id, summary.country)
+                album = self._load_album(summary, token)
             try:
-                if summary.source == "discogs":
-                    cover = self.discogs_client.download_cover(album.artwork_url, cover_size, token)
-                else:
-                    cover = self.client.download_cover(album.artwork_url, cover_size)
+                cover = self._download_cover(summary.source, album.artwork_url, cover_size, token)
                 return album, cover, None
             except Exception as exc:
                 return album, None, str(exc)
@@ -1215,9 +1262,7 @@ class DiscTagApp:
         self.status_var.set(f"正在获取最高 {size}×{size} 的封面…")
 
         def work():
-            if album.source == "discogs":
-                return self.discogs_client.download_cover(artwork_url, size, token)
-            return self.client.download_cover(artwork_url, size)
+            return self._download_cover(album.source, artwork_url, size, token)
 
         def done(data: bytes):
             if request_id != self.cover_request_id or self.album is not album:
@@ -1604,19 +1649,26 @@ class DiscTagApp:
                 self.status_var.set("就绪")
 
     def _metadata_source_changed(self, _event=None) -> None:
-        is_discogs = self.metadata_source_var.get() == "Discogs"
-        if is_discogs:
+        source = self.metadata_source_var.get()
+        if source == SOURCE_DISCOGS:
             self.region_label.pack_forget()
             self.region_combo.pack_forget()
             self.token_header.pack(fill="x", before=self.search_button.master)
             self.discogs_token_entry.pack(fill="x", pady=(4, 6), before=self.search_button.master)
             self.search_button.configure(text="搜索 Discogs")
+        elif source == SOURCE_MUSICBRAINZ:
+            for widget in (self.region_label, self.region_combo, self.token_header, self.discogs_token_entry):
+                widget.pack_forget()
+            self.search_button.configure(text="搜索 MusicBrainz")
         else:
             self.token_header.pack_forget()
             self.discogs_token_entry.pack_forget()
             self.region_label.pack(anchor="w", before=self.search_button.master)
             self.region_combo.pack(fill="x", pady=(4, 6), before=self.search_button.master)
             self.search_button.configure(text="搜索 iTunes")
+        hint_label = getattr(self, "region_hint_label", None)
+        if hint_label is not None:
+            hint_label.configure(text=SOURCE_HINTS.get(source, ""))
         if _event is not None:
             self._invalidate_metadata_requests()
             self.results = []

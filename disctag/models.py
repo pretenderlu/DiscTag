@@ -4,7 +4,7 @@ from pathlib import Path
 
 @dataclass
 class AlbumSummary:
-    collection_id: int
+    collection_id: int | str
     title: str
     artist: str
     release_date: str = ""
@@ -13,6 +13,10 @@ class AlbumSummary:
     artwork_url: str = ""
     country: str = ""
     source: str = "itunes"
+    # 多碟唱片中与本地音轨匹配的那张光盘（MusicBrainz TOC 识别时使用）。
+    medium: int | None = None
+    # 结果列表中附加显示的版本信息，例如年份、目录号。
+    detail: str = ""
 
 
 @dataclass
@@ -35,7 +39,7 @@ class AlbumMetadata:
     release_date: str = ""
     genre: str = ""
     artwork_url: str = ""
-    collection_id: int | None = None
+    collection_id: int | str | None = None
     tracks: list[TrackMetadata] = field(default_factory=list)
     source: str = "itunes"
 

@@ -384,6 +384,38 @@ class AppTests(unittest.TestCase):
         a.client.get_album.assert_not_called()
         self.assertEqual(album.collection_id, 2)
 
+    def test_musicbrainz_search_uses_toc_without_album_name(self):
+        a = self.app
+        a.metadata_source_var.set("MusicBrainz")
+        a.album_var.set("")
+        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.source_durations = {a.sources[0]: 2.0, a.sources[1]: 3.0}
+        a.musicbrainz_client = Mock()
+        a.musicbrainz_client.lookup_toc.return_value = [AlbumSummary("rel", "Album", "A", track_count=2, country="JP",
+                                                                     source="musicbrainz", medium=1)]
+        a._search()
+        work, done, _ = self.jobs[-1]
+        done(work())
+        a.musicbrainz_client.lookup_toc.assert_called_once_with("1+2+525+150+300", "", "Artist")
+        a.musicbrainz_client.search_albums.assert_not_called()
+        self.assertEqual(a.results_tree.insert.call_args.kwargs["values"][0], "✓ JP")
+
+        a.results_tree.selection.return_value = ("0",)
+        a._album_selected()
+        work, _, _ = self.jobs[-1]
+        work()
+        a.musicbrainz_client.get_album.assert_called_once_with("rel", 1)
+
+    def test_musicbrainz_requires_album_or_wav(self):
+        a = self.app
+        a.metadata_source_var.set("MusicBrainz")
+        a.album_var.set("")
+        a.sources = []
+        with patch("disctag.app.messagebox.showwarning") as warning:
+            a._search()
+        warning.assert_called_once()
+        self.assertEqual(self.jobs, [])
+
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo
 
