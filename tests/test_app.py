@@ -36,6 +36,7 @@ class AppTests(unittest.TestCase):
         a.discogs_token_var = Variable("")
         a.output_var = Variable(str(self.root))
         a.format_var = Variable("wav")
+        a.trash_sources_var = Variable(False)
         a.quality_var = Variable("320 kbps")
         a.cover_size_var = Variable("1200 × 1200")
         a.cover_embed_var = Variable("同 cover.jpg")

@@ -27,6 +27,7 @@ FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 | charset-normalizer | MIT |
 | keyring 及 jaraco.*、more-itertools | MIT |
 | pywin32-ctypes（仅 Windows） | BSD-3-Clause |
+| Send2Trash（macOS 废纸篓） | BSD-3-Clause |
 | Python 运行时 | PSF License |
 
 各组件源码可在 PyPI（https://pypi.org/）获取。

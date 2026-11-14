@@ -16,8 +16,9 @@ from ..audio import (
     output_path,
 )
 from ..i18n import tr
-from ..jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING, ConversionJob
+from ..jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING, ConversionJob, trash_sources_if_complete
 from ..models import ConversionResult, renumber_tracks
+from ..trash import trash_name
 from .queue_window import QueueWindow
 
 
@@ -99,6 +100,7 @@ class ProcessingMixin:
             cover_data=self.cover_data,
             embed_cover=embed_cover,
             embed_max_size=embed_max_size,
+            trash_sources=bool(self.trash_sources_var.get()),
         )
 
     def _enqueue_current(self) -> bool:
@@ -157,11 +159,13 @@ class ProcessingMixin:
             self._post(lambda: self._conversion_progress(current, total, f"{prefix}{text}"))
 
         def work():
-            return convert_album(
+            result = convert_album(
                 job.sources, job.album, job.output_root, job.output_format, job.mp3_quality, job.cover_data, progress,
                 job.embed_cover, job.embed_max_size,
                 cancel=cancel,
             )
+            trash_sources_if_complete(job, result)
+            return result
 
         self.conversion_thread = self._run_async(work, lambda result: self._job_done(job, result),
                                                  lambda error: self._job_failed(job, error))
@@ -184,6 +188,14 @@ class ProcessingMixin:
     def _job_done(self, job: ConversionJob, result: ConversionResult) -> None:
         job.finish(result)
         self.last_output = result.output_directory
+        if result.trashed_sources and self.sources and job.same_input(self.sources):
+            # 当前界面显示的正是已移到回收站的 WAV，清空列表以免试听或再次处理不存在的文件。
+            if self.preview.playing:
+                self.preview.stop()
+            self.sources = []
+            self.source_durations = {}
+            self.source_var.set(tr("源 WAV 已移到{0}", trash_name()))
+            self._refresh_tracks()
         self._refresh_queue_view()
         self._run_next_job()
 
@@ -216,18 +228,44 @@ class ProcessingMixin:
             self.status_var.set(tr("已取消 · 已完成 {0} 首", len(result.converted_files)))
             messagebox.showinfo(
                 tr("已取消处理"),
-                tr("已完成 {0} 首，其余曲目未处理。\n\n{1}", len(result.converted_files), result.output_directory),
+                tr("已完成 {0} 首，其余曲目未处理。\n\n{1}", len(result.converted_files), result.output_directory)
+                + self._trash_note(job),
                 parent=self.root,
             )
         elif result.failures:
             self.progress_var.set(len(job.sources))
             details = "\n".join(tr("{0}：{1}", failure.source.name, failure.message) for failure in result.failures[:6])
             self.status_var.set(tr("完成 {0} 首，失败 {1} 首", len(result.converted_files), len(result.failures)))
-            messagebox.showwarning(tr("部分曲目处理失败"), tr("成功 {0} 首，失败 {1} 首。\n\n{2}", len(result.converted_files), len(result.failures), details), parent=self.root)
+            messagebox.showwarning(tr("部分曲目处理失败"), tr("成功 {0} 首，失败 {1} 首。\n\n{2}", len(result.converted_files), len(result.failures), details) + self._trash_note(job), parent=self.root)
         else:
             self.progress_var.set(len(job.sources))
             self.status_var.set(tr("处理完成 · {0}", result.output_directory))
-            messagebox.showinfo(tr("处理完成"), tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory), parent=self.root)
+            text = tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory) + self._trash_note(job)
+            if result.trash_failures:
+                messagebox.showwarning(tr("部分源 WAV 未能移到{0}", trash_name()), text, parent=self.root)
+            else:
+                messagebox.showinfo(tr("处理完成"), text, parent=self.root)
+
+    def _trash_note(self, job: ConversionJob) -> str:
+        result = job.result
+        if not job.trash_sources or result is None:
+            return ""
+        if result.trash_skipped:
+            return "\n\n" + tr("未全部成功，源 WAV 已全部保留。")
+        note = "\n\n" + tr("{0} 个源 WAV 已移到{1}，可从{1}恢复。", len(result.trashed_sources), trash_name())
+        if result.trash_failures:
+            details = "\n".join(tr("{0}：{1}", failure.source.name, failure.message) for failure in result.trash_failures[:6])
+            note += "\n\n" + tr("以下文件未能移动，已保留在原位置：\n{0}", details)
+        return note
+
+    def _trash_sources_toggled(self) -> None:
+        if self.trash_sources_var.get():
+            messagebox.showinfo(
+                tr("完成后移到{0}", trash_name()),
+                tr("开启后，每张专辑全部处理成功时，导入的源 WAV 会被移到{0}，需要时可从{0}恢复。\n\n"
+                   "只要有曲目失败或中途取消，就会保留全部源 WAV；同一文件夹中的其他文件不会改动。", trash_name()),
+                parent=self.root,
+            )
 
     def _report_queue(self, jobs: list[ConversionJob]) -> None:
         done = sum(job.status == DONE for job in jobs)

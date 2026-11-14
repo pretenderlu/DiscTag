@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .i18n import tr
-from .models import AlbumMetadata, ConversionResult
+from .models import AlbumMetadata, ConversionFailure, ConversionResult
+from .trash import move_to_trash, trash_name
 
 PENDING = "pending"
 RUNNING = "running"
@@ -35,6 +36,7 @@ class ConversionJob:
     cover_data: bytes | None
     embed_cover: bool
     embed_max_size: int | None
+    trash_sources: bool = False
     status: str = PENDING
     message: str = ""
     result: ConversionResult | None = None
@@ -72,6 +74,13 @@ class ConversionJob:
         else:
             self.status = DONE
             self.message = tr("{0} 首", converted)
+        if result.trashed_sources:
+            self.message += tr("；源 WAV 已移到{0}", trash_name())
+        if result.trash_failures:
+            self.status = PARTIAL
+            self.message += tr("；{0} 个源 WAV 未能移到{1}，已保留", len(result.trash_failures), trash_name())
+        if result.trash_skipped:
+            self.message += tr("；未全部成功，源 WAV 已全部保留")
 
     def fail(self, error: Exception) -> None:
         self.status = FAILED
@@ -79,6 +88,24 @@ class ConversionJob:
 
     def same_input(self, sources: list[Path]) -> bool:
         return [path.resolve() for path in self.sources] == [path.resolve() for path in sources]
+
+
+def trash_sources_if_complete(job: ConversionJob, result: ConversionResult, mover=move_to_trash) -> None:
+    """Moves the job's source WAVs to the trash, but only if every track was written successfully."""
+    if not job.trash_sources:
+        return
+    complete = (
+        not result.cancelled
+        and not result.failures
+        and len(result.converted_files) == len(job.sources)
+        and all(path.is_file() and path.stat().st_size > 0 for path in result.converted_files)
+    )
+    if not complete:
+        result.trash_skipped = True
+        return
+    moved, failures = mover(job.sources)
+    result.trashed_sources = list(moved)
+    result.trash_failures = [ConversionFailure(path, message) for path, message in failures]
 
 
 @dataclass

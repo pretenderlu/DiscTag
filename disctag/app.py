@@ -104,6 +104,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
         self.source_var = tk.StringVar(value=tr("尚未选择 WAV 文件夹"))
         self.output_var = tk.StringVar(value=self.settings.get("output", str(Path.home() / "Music" / "DiscTag")))
         self.format_var = tk.StringVar(value=self.settings.get("format", "flac"))
+        self.trash_sources_var = tk.BooleanVar(value=self.settings.get("trash_sources") is True)
         self.quality_var = tk.StringVar(value=self.settings.get("quality", "320 kbps"))
         self.region_var = tk.StringVar(value=self.settings.get("region", "US"))
         self.metadata_source_var = tk.StringVar(value=self.settings.get("metadata_source", "iTunes / Apple Music"))
@@ -275,6 +276,7 @@ class DiscTagApp(ThemeMixin, LayoutMixin, EasterEggMixin, TracksMixin, CatalogMi
             "cover_size": self._cover_size_value(),
             "cover_embed": _cover_embed_value(self.cover_embed_var.get()),
             "language": getattr(self, "language_setting", "auto"),
+            "trash_sources": bool(self.trash_sources_var.get()),
         }
         try:
             path = _settings_path()

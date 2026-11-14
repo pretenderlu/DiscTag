@@ -8,6 +8,7 @@ from tkinter import ttk
 from .. import __version__, i18n
 from ..i18n import tr
 from ..rounded_panel import RoundedPanel
+from ..trash import trash_name
 from .common import (
     ACCENT,
     ACCENT_DARK,
@@ -248,6 +249,12 @@ class LayoutMixin:
         output_row.pack(fill="x")
         ttk.Label(output_row, text=tr("输出目录"), style="Card.TLabel").pack(side="left", padx=(0, 8))
         ttk.Entry(output_row, textvariable=self.output_var).pack(side="left", fill="x", expand=True)
+        ttk.Checkbutton(
+            output_row,
+            text=tr("完成后将源 WAV 移到{0}", trash_name()),
+            variable=self.trash_sources_var,
+            command=self._trash_sources_toggled,
+        ).pack(side="left", padx=(self._px(12), self._px(4)))
         ttk.Button(output_row, text=tr("浏览"), command=self._choose_output).pack(side="left", padx=(8, 0))
         ttk.Button(output_row, text=tr("打开目录"), command=self._open_output).pack(side="left", padx=(6, 0))
         action_row = ttk.Frame(output_card, style="Card.TFrame")
