@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from disctag.app import DiscTagApp
+from disctag.jobs import CANCELLED, DONE, PENDING, JobQueue
 from disctag.audio import output_directory
 from disctag.models import AlbumMetadata, AlbumSummary, TrackMetadata
 
@@ -59,6 +60,13 @@ class AppTests(unittest.TestCase):
         a.cjk_font = "Microsoft YaHei UI"
         a.latest_release_url = "https://github.com/pretenderlu/DiscTag/releases/latest"
         a.results = []
+        a.job_queue = JobQueue()
+        a.queue_run_jobs = []
+        a.current_job = None
+        a.queue_window = None
+        a.cancel_event = None
+        a.conversion_thread = None
+        a.last_output = None
         a.result_markers = {}
         a.album_cache = {}
         a.client = Mock(last_warnings=[])
@@ -107,12 +115,13 @@ class AppTests(unittest.TestCase):
         error.assert_not_called()
 
     def test_source_switch_does_not_enable_search_while_busy(self):
-        for flag in ("converting", "updating"):
-            with self.subTest(flag=flag):
-                setattr(self.app, flag, True)
-                self.app._metadata_source_changed(object())
-                self.app.search_button.configure.assert_called_with(state="disabled")
-                setattr(self.app, flag, False)
+        self.app.updating = True
+        self.app._metadata_source_changed(object())
+        self.app.search_button.configure.assert_called_with(state="disabled")
+        self.app.updating = False
+        self.app.converting = True
+        self.app._metadata_source_changed(object())
+        self.app.search_button.configure.assert_called_with(state="normal")
 
     def test_manual_mode_invalidates_pending_album(self):
         _, done, failed = self.select_album()
@@ -194,16 +203,17 @@ class AppTests(unittest.TestCase):
         work()
         a.discogs_client.download_cover.assert_called_once_with("https://example.invalid/cover.jpg", 1200, "test-token")
 
-    def test_conversion_invalidates_pending_search(self):
+    def test_search_keeps_working_while_converting(self):
         a = self.app
         a.album = self.album("Manual Album")
-        a._search()
-        _, done, _ = self.jobs[-1]
         a._convert()
-        done([AlbumSummary(1, "Old", "Artist")])
         self.assertTrue(a.converting)
-        self.assertFalse(a.results)
-        a.search_button.configure.assert_called_with(state="disabled")
+        a._post = lambda callback: None
+        a._search()
+        work, done, _ = self.jobs[-1]
+        a.client.search_albums.return_value = [AlbumSummary(1, "Next", "Artist")]
+        done(work())
+        self.assertEqual([entry.title for entry in a.results], ["Next"])
 
     def test_import_caches_wav_durations(self):
         a = self.app
@@ -240,9 +250,9 @@ class AppTests(unittest.TestCase):
         self.assertEqual(Image.open(io.BytesIO(a.cover_data)).size, (600, 600))
         self.assertTrue(a.cover_is_local)
 
-    def test_move_source_is_blocked_while_converting(self):
+    def test_move_source_is_blocked_while_updating(self):
         a = self.app
-        a.converting = True
+        a.updating = True
         a.tracks_tree = Mock()
         a.tracks_tree.selection.return_value = ("0",)
         a.sources = [self.root / "a.wav", self.root / "b.wav"]
@@ -334,6 +344,7 @@ class AppTests(unittest.TestCase):
                     work()
                     self.assertEqual(convert.call_args.args[-2:], expected)
                     a.converting = False
+                    a.job_queue = JobQueue()
 
     def test_cancel_conversion_flow(self):
         from disctag.models import ConversionResult
@@ -341,18 +352,90 @@ class AppTests(unittest.TestCase):
         a = self.app
         a.album = self.album("Manual Album")
         a._save_settings = Mock()
-        with patch("disctag.app.convert_album"):
-            a._convert()
+        a._convert()
         self.assertTrue(a.converting)
         self.assertEqual(a.convert_button.configure.call_args.kwargs["text"], "取消处理")
         a._cancel_conversion()
         self.assertTrue(a.cancel_event.is_set())
+        _, done, _ = self.jobs[-1]
         with patch("disctag.app.messagebox") as box:
-            a._conversion_done(ConversionResult(self.root, cancelled=True))
+            done(ConversionResult(self.root, cancelled=True))
             box.showinfo.assert_called_once()
         self.assertFalse(a.converting)
         self.assertIsNone(a.cancel_event)
         self.assertEqual(a.convert_button.configure.call_args.kwargs["text"], "开始处理")
+        self.assertEqual(a.job_queue.jobs[0].status, CANCELLED)
+
+    def queue_album(self, folder, title):
+        a = self.app
+        a.sources = [self.root / folder / "01.wav"]
+        a.album = self.album(title)
+        a.album_var.set(title)
+        self.assertTrue(a._enqueue_current())
+
+    def test_queue_runs_albums_in_order_and_reports_once(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a._save_settings = Mock()
+        self.queue_album("one", "First")
+        self.queue_album("two", "Second")
+        self.queue_album("two", "Second (edited)")
+        self.assertEqual([job.title for job in a.job_queue.jobs], ["First", "Second (edited)"])
+        a.sources, a.album = [], None
+        a._convert()
+        with patch("disctag.app.messagebox") as box:
+            for expected in ("First", "Second (edited)"):
+                self.assertEqual(a.current_job.title, expected)
+                _, done, _ = self.jobs[-1]
+                done(ConversionResult(self.root, converted_files=[self.root / "x.flac"]))
+            box.showinfo.assert_called_once()
+            self.assertIn("2 张", box.showinfo.call_args.args[1])
+        self.assertEqual([job.status for job in a.job_queue.jobs], [DONE, DONE])
+        self.assertFalse(a.converting)
+
+    def test_cancel_keeps_rest_of_queue_pending(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a._save_settings = Mock()
+        self.queue_album("one", "First")
+        self.queue_album("two", "Second")
+        a.sources, a.album = [], None
+        a._convert()
+        a._cancel_conversion()
+        _, done, _ = self.jobs[-1]
+        with patch("disctag.app.messagebox"):
+            done(ConversionResult(self.root, cancelled=True))
+        self.assertEqual([job.status for job in a.job_queue.jobs], [CANCELLED, PENDING])
+        self.assertFalse(a.converting)
+        self.assertEqual(len(self.jobs), 1)
+
+    def test_failed_album_does_not_stop_queue(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a._save_settings = Mock()
+        self.queue_album("one", "First")
+        self.queue_album("two", "Second")
+        a.sources, a.album = [], None
+        a._convert()
+        _, _, failed = self.jobs[-1]
+        failed(RuntimeError("disk full"))
+        _, done, _ = self.jobs[-1]
+        with patch("disctag.app.messagebox") as box:
+            done(ConversionResult(self.root, converted_files=[self.root / "x.flac"]))
+            box.showwarning.assert_called_once()
+        self.assertEqual(a.job_queue.jobs[0].message, "disk full")
+
+    def test_convert_with_invalid_current_album_does_not_start_queue(self):
+        a = self.app
+        self.queue_album("one", "First")
+        a.album = None
+        with patch("disctag.app.messagebox.showwarning") as warning:
+            a._convert()
+        warning.assert_called_once()
+        self.assertFalse(a.converting)
 
     def test_search_ranks_by_local_duration_and_caches_album(self):
         a = self.app

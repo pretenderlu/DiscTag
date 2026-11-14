@@ -42,9 +42,11 @@ from .editing import (
     track_label,
 )
 from .itunes import COVER_SIZES, ITUNES_REGIONS, ITunesClient
+from .jobs import CANCELLED, DONE, FAILED, PARTIAL, RUNNING, ConversionJob, JobQueue
 from .fireworks import Fireworks
 from .models import AlbumMetadata, AlbumSummary, ConversionResult, renumber_tracks
 from .playback import AudioPreview
+from .queue_window import QueueWindow
 from .musicbrainz import MusicBrainzClient, MusicBrainzError, toc_from_durations
 from .ranking import EXACT, DurationFit, candidates_to_verify, rank_results, result_key, verify_candidates
 from .rounded_panel import RoundedPanel
@@ -117,6 +119,10 @@ class DiscTagApp:
         self.updating = False
         self.converting = False
         self.cancel_event: threading.Event | None = None
+        self.job_queue = JobQueue()
+        self.queue_run_jobs: list[ConversionJob] = []
+        self.current_job: ConversionJob | None = None
+        self.queue_window: QueueWindow | None = None
         self.conversion_thread: threading.Thread | None = None
         self._ui_queue: queue.SimpleQueue = queue.SimpleQueue()
         self.icon_click_count = 0
@@ -582,6 +588,10 @@ class DiscTagApp:
         self.progress.pack(side="left", fill="x", expand=True, padx=18)
         self.convert_button = ttk.Button(action_row, text="开始处理", style="Convert.TButton", command=self._convert)
         self.convert_button.pack(side="right")
+        self.enqueue_button = ttk.Button(action_row, text="加入队列", command=self._add_to_queue)
+        self.enqueue_button.pack(side="right", padx=(0, self._px(8)))
+        self.queue_button = ttk.Button(action_row, text="队列", width=8, command=self._show_queue)
+        self.queue_button.pack(side="right", padx=(0, self._px(8)))
         self._format_changed()
 
         status_bar = ttk.Frame(self.root)
@@ -671,7 +681,7 @@ class DiscTagApp:
         self.easter_egg_dialog = None
 
     def _import_wav(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         selected = filedialog.askdirectory(title="选择包含 WAV 音轨的文件夹")
         if not selected:
@@ -711,10 +721,10 @@ class DiscTagApp:
         self.search_request_id += 1
         self.album_request_id += 1
         self.cover_request_id += 1
-        self.search_button.configure(state="disabled" if self.converting or self.updating else "normal")
+        self.search_button.configure(state="disabled" if self.updating else "normal")
 
     def _clear_album(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         self._invalidate_metadata_requests()
         for variable in (self.album_var, self.artist_var, self.album_artist_var, self.date_var, self.genre_var):
@@ -734,7 +744,7 @@ class DiscTagApp:
         self.album_entry.focus_set()
 
     def _search(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         source = self.metadata_source_var.get()
         if not self.album_var.get().strip() and not (source == SOURCE_MUSICBRAINZ and self.sources):
@@ -861,7 +871,7 @@ class DiscTagApp:
         messagebox.showerror("搜索失败", str(error), parent=self.root)
 
     def _album_selected(self, _event=None) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         selection = self.results_tree.selection()
         if not selection:
@@ -939,7 +949,7 @@ class DiscTagApp:
         messagebox.showerror("载入失败", str(error), parent=self.root)
 
     def _manual_mode(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         if not self.sources:
             messagebox.showwarning("请先导入 WAV", "手动模式需要本地 WAV 文件来建立曲目列表。", parent=self.root)
@@ -1011,7 +1021,7 @@ class DiscTagApp:
         self.match_var.set(match_status(len(self.sources), self.album, duration_warnings))
 
     def _track_clicked(self, event) -> str | None:
-        if self.converting or self.tracks_tree.identify_region(event.x, event.y) != "cell":
+        if self.tracks_tree.identify_region(event.x, event.y) != "cell":
             return None
         if self.tracks_tree.identify_column(event.x) != "#1":
             return None
@@ -1023,7 +1033,7 @@ class DiscTagApp:
         return "break"
 
     def _toggle_playback(self, index: int) -> None:
-        if self.converting or not 0 <= index < len(self.sources):
+        if not 0 <= index < len(self.sources):
             return
         try:
             self.preview.toggle(self.sources[index])
@@ -1047,7 +1057,7 @@ class DiscTagApp:
             self.status_var.set("试听已停止")
 
     def _move_source(self, offset: int) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         selection = self.tracks_tree.selection()
         if not selection or not self.sources:
@@ -1085,7 +1095,7 @@ class DiscTagApp:
         return message
 
     def _insert_missing_track(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         if not self.album or self.album.collection_id is None or len(self.sources) <= len(self.album.tracks):
             messagebox.showinfo("无需插入", "当前没有可由手动缺曲补齐的数量差异。", parent=self.root)
@@ -1173,7 +1183,7 @@ class DiscTagApp:
         return True
 
     def _edit_track(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         selection = self.tracks_tree.selection()
         if not selection or not self.album:
@@ -1279,7 +1289,7 @@ class DiscTagApp:
         self._run_async(work, done, failed)
 
     def _choose_cover(self) -> None:
-        if self.converting or self.updating:
+        if self.updating:
             return
         selected = filedialog.askopenfilename(title="选择专辑封面", filetypes=[("图片", "*.jpg *.jpeg *.png *.webp"), ("所有文件", "*.*")])
         if not selected:
@@ -1330,33 +1340,32 @@ class DiscTagApp:
         else:
             subprocess.Popen(["xdg-open", str(path)])
 
-    def _convert(self) -> None:
-        if self.converting or self.updating:
-            return
+    def _prepare_job(self) -> ConversionJob | None:
+        """Validates the current album and snapshots it into a job; shows a message and returns None if not ready."""
         if not self.sources:
             messagebox.showwarning("缺少 WAV", "请先选择包含 WAV 音轨的文件夹。", parent=self.root)
-            return
+            return None
         if not self.album:
             messagebox.showwarning("缺少专辑资料", "请搜索并选择专辑，或使用手动模式。", parent=self.root)
-            return
+            return None
         if len(self.sources) != len(self.album.tracks):
             messagebox.showwarning("曲目数量不一致", "请使用时长匹配、手动插入缺曲、重新选择专辑，或改用手动模式。", parent=self.root)
-            return
+            return None
         if any(track.origin == "auto-manual" for track in self.album.tracks):
             messagebox.showwarning("缺曲仍待确认", "请查阅实体 CD 曲目表，双击“待确认”行填写真实歌名并保存，然后再处理。", parent=self.root)
-            return
+            return None
         if not self.album_var.get().strip() or not self.artist_var.get().strip():
             messagebox.showwarning("资料不完整", "专辑名称和歌手名称不能为空。", parent=self.root)
-            return
+            return None
         if not self.output_var.get().strip():
             messagebox.showwarning("缺少输出目录", "请选择输出根目录。", parent=self.root)
-            return
+            return None
         if self.format_var.get() != "wav":
             try:
                 find_ffmpeg()
             except Exception as exc:
                 messagebox.showerror("FFmpeg 不可用", str(exc), parent=self.root)
-                return
+                return None
         album = copy.deepcopy(self.album)
         album.title = self.album_var.get().strip()
         album.artist = self.artist_var.get().strip()
@@ -1372,78 +1381,184 @@ class DiscTagApp:
         if any(path.exists() for path in existing):
             overwrite = messagebox.askyesno("确认覆盖", "输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？", parent=self.root)
             if not overwrite:
-                return
-        sources = list(self.sources)
-        cover = self.cover_data
-        output_format = self.format_var.get()
-        quality = self.quality_var.get()
+                return None
         embed_cover, embed_max_size = self._cover_embed_choice()
-        self.preview.stop()
+        return ConversionJob(
+            sources=list(self.sources),
+            album=album,
+            output_root=output_root,
+            output_format=self.format_var.get(),
+            mp3_quality=self.quality_var.get(),
+            cover_data=self.cover_data,
+            embed_cover=embed_cover,
+            embed_max_size=embed_max_size,
+        )
+
+    def _enqueue_current(self) -> bool:
+        job = self._prepare_job()
+        if job is None:
+            return False
+        replaced = self.job_queue.add(job)
+        self._refresh_queue_view()
+        position = self.job_queue.jobs.index(job) + 1
+        action = "已更新队列中的" if replaced else "已加入队列"
+        self.status_var.set(f"{action}《{job.title}》（第 {position} 项）· 可以导入下一张 CD")
+        return True
+
+    def _add_to_queue(self) -> None:
+        if self.updating:
+            return
+        self._enqueue_current()
+
+    def _convert(self) -> None:
+        """Queues the current album (if any) and starts processing the queue."""
+        if self.converting or self.updating:
+            return
+        has_current = bool(self.sources or self.album)
+        if has_current or not self.job_queue.pending_count():
+            if not self._enqueue_current():
+                return
+        self._start_queue()
+
+    def _start_queue(self) -> None:
+        if self.converting or not self.job_queue.pending_count():
+            return
         self.converting = True
-        cancel = self.cancel_event = threading.Event()
-        self._invalidate_metadata_requests()
+        self.cancel_event = threading.Event()
+        self.queue_run_jobs = []
         self.convert_button.configure(text="取消处理", command=self._cancel_conversion)
-        self.clear_button.configure(state="disabled")
+        self._run_next_job()
+
+    def _run_next_job(self) -> None:
+        job = self.job_queue.next_pending()
+        if job is None or self.cancel_event is None or self.cancel_event.is_set():
+            self._finish_queue()
+            return
+        job.status = RUNNING
+        self.queue_run_jobs.append(job)
+        self.current_job = job
+        self._refresh_queue_view()
+        if self.preview.playing and self.preview.path in job.sources:
+            self.preview.stop()
         self.progress_var.set(0)
-        self.progress.configure(maximum=len(sources))
-        self.status_var.set("正在准备处理…")
+        self.progress.configure(maximum=len(job.sources))
+        prefix = self._job_prefix(job)
+        self.status_var.set(f"{prefix}正在准备处理《{job.title}》…")
+        cancel = self.cancel_event
 
         def progress(current: int, total: int, text: str):
-            self._post(lambda: self._conversion_progress(current, total, text))
+            self._post(lambda: self._conversion_progress(current, total, f"{prefix}{text}"))
 
         def work():
             return convert_album(
-                sources, album, output_root, output_format, quality, cover, progress, embed_cover, embed_max_size,
+                job.sources, job.album, job.output_root, job.output_format, job.mp3_quality, job.cover_data, progress,
+                job.embed_cover, job.embed_max_size,
                 cancel=cancel,
             )
 
-        self.conversion_thread = self._run_async(work, self._conversion_done, self._conversion_failed)
+        self.conversion_thread = self._run_async(work, lambda result: self._job_done(job, result),
+                                                 lambda error: self._job_failed(job, error))
+
+    def _job_prefix(self, job: ConversionJob) -> str:
+        total = len(self.queue_run_jobs) + self.job_queue.pending_count()
+        return f"[{self.queue_run_jobs.index(job) + 1}/{total}] " if total > 1 else ""
 
     def _cancel_conversion(self) -> None:
         if self.converting and self.cancel_event is not None and not self.cancel_event.is_set():
             self.cancel_event.set()
             self.convert_button.configure(state="disabled")
-            self.status_var.set("正在取消，当前曲目停止后结束…")
-
-    def _finish_conversion(self) -> None:
-        self.converting = False
-        self.cancel_event = None
-        self.conversion_thread = None
-        self.convert_button.configure(text="开始处理", command=self._convert, state="normal")
-        self.search_button.configure(state="normal")
-        self.clear_button.configure(state="normal")
+            self.status_var.set("正在取消，当前曲目停止后结束；队列中其余专辑会保留…")
 
     def _conversion_progress(self, current: int, _total: int, text: str) -> None:
         if self.converting:
             self.progress_var.set(current)
             self.status_var.set(text)
 
-    def _conversion_done(self, result: ConversionResult) -> None:
-        self._finish_conversion()
+    def _job_done(self, job: ConversionJob, result: ConversionResult) -> None:
+        job.finish(result)
         self.last_output = result.output_directory
-        if result.cancelled:
+        self._refresh_queue_view()
+        self._run_next_job()
+
+    def _job_failed(self, job: ConversionJob, error: Exception) -> None:
+        job.fail(error)
+        self._refresh_queue_view()
+        self._run_next_job()
+
+    def _finish_queue(self) -> None:
+        jobs = self.queue_run_jobs
+        self.converting = False
+        self.cancel_event = None
+        self.conversion_thread = None
+        self.current_job = None
+        self.queue_run_jobs = []
+        self.convert_button.configure(text="开始处理", command=self._convert, state="normal")
+        self._refresh_queue_view()
+        self._save_settings()
+        if len(jobs) == 1:
+            self._report_single_job(jobs[0])
+        elif jobs:
+            self._report_queue(jobs)
+
+    def _report_single_job(self, job: ConversionJob) -> None:
+        result = job.result
+        if job.status == FAILED or result is None:
+            self.status_var.set("处理失败")
+            messagebox.showerror("处理失败", job.message, parent=self.root)
+        elif result.cancelled:
             self.status_var.set(f"已取消 · 已完成 {len(result.converted_files)} 首")
             messagebox.showinfo(
                 "已取消处理",
                 f"已完成 {len(result.converted_files)} 首，其余曲目未处理。\n\n{result.output_directory}",
                 parent=self.root,
             )
-            self._save_settings()
-            return
-        self.progress_var.set(len(self.sources))
-        if result.failures:
+        elif result.failures:
+            self.progress_var.set(len(job.sources))
             details = "\n".join(f"{failure.source.name}：{failure.message}" for failure in result.failures[:6])
             self.status_var.set(f"完成 {len(result.converted_files)} 首，失败 {len(result.failures)} 首")
             messagebox.showwarning("部分曲目处理失败", f"成功 {len(result.converted_files)} 首，失败 {len(result.failures)} 首。\n\n{details}", parent=self.root)
         else:
+            self.progress_var.set(len(job.sources))
             self.status_var.set(f"处理完成 · {result.output_directory}")
             messagebox.showinfo("处理完成", f"已生成 {len(result.converted_files)} 首音乐，标签与封面处理完成。\n\n{result.output_directory}", parent=self.root)
-        self._save_settings()
 
-    def _conversion_failed(self, error: Exception) -> None:
-        self._finish_conversion()
-        self.status_var.set("处理失败")
-        messagebox.showerror("处理失败", str(error), parent=self.root)
+    def _report_queue(self, jobs: list[ConversionJob]) -> None:
+        done = sum(job.status == DONE for job in jobs)
+        problems = [job for job in jobs if job.status in {PARTIAL, FAILED}]
+        cancelled = any(job.status == CANCELLED for job in jobs)
+        remaining = self.job_queue.pending_count()
+        summary = f"完成 {done} 张"
+        if problems:
+            summary += f"，{len(problems)} 张有问题"
+        if cancelled:
+            summary += f"，已取消（队列中还剩 {remaining} 张）"
+        self.status_var.set(f"队列处理结束 · {summary}")
+        details = "\n".join(f"《{job.title}》：{job.status_label} · {job.message}" for job in problems[:8])
+        text = f"本次处理了 {len(jobs)} 张专辑：{summary}。"
+        if details:
+            text += f"\n\n{details}\n\n可在“队列”中查看并重试。"
+        if problems:
+            messagebox.showwarning("队列处理结束", text, parent=self.root)
+        else:
+            messagebox.showinfo("队列处理结束", text, parent=self.root)
+
+    def _queue_button_text(self) -> str:
+        active = sum(not job.finished for job in self.job_queue.jobs)
+        return f"队列 · {active}" if active else "队列"
+
+    def _refresh_queue_view(self) -> None:
+        button = getattr(self, "queue_button", None)
+        if button is not None:
+            button.configure(text=self._queue_button_text())
+        window = getattr(self, "queue_window", None)
+        if window is not None:
+            window.refresh()
+
+    def _show_queue(self) -> None:
+        if self.queue_window is not None and self.queue_window.exists():
+            self.queue_window.focus()
+            return
+        self.queue_window = QueueWindow(self)
 
     def _check_for_updates(self) -> None:
         def work():
@@ -1711,7 +1826,13 @@ class DiscTagApp:
         self.region_var.set(_region_code(label))
 
     def _close(self) -> None:
-        if self.converting and not messagebox.askyesno("处理仍在进行", "现在退出会中断未完成的处理，确定退出吗？", parent=self.root):
+        pending = self.job_queue.pending_count()
+        if self.converting:
+            message = "现在退出会中断未完成的处理"
+            message += f"，队列中还有 {pending} 张专辑未处理" if pending else ""
+            if not messagebox.askyesno("处理仍在进行", f"{message}，确定退出吗？", parent=self.root):
+                return
+        elif pending and not messagebox.askyesno("队列尚未处理", f"队列中还有 {pending} 张专辑未处理，退出后队列会清空。确定退出吗？", parent=self.root):
             return
         if self.converting and self.cancel_event is not None:
             # 让工作线程结束 FFmpeg 并清理临时目录，避免残留进程和 .disctag-* 文件夹。
