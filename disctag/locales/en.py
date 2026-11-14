@@ -67,7 +67,7 @@ EN = {
     "无法播放 {0}：{1}": "Cannot play {0}: {1}",
     # Track editing
     "{0} 首": "{0} tracks",
-    "{0} 首已对应 · 双击编辑 / 上下移动{1}": "{0} tracks matched · double-click to edit / move up or down{1}",
+    "{0} 首已对应 · 双击或回车编辑 / 上下移动{1}": "{0} tracks matched · double-click or press Enter to edit / move up or down{1}",
     "（{0} 首在线 + {1} 首手动）": " ({0} online + {1} manual)",
     "手动模式": "Manual",
     "已导入 {0} 首 · 尚未匹配专辑": "{0} tracks imported · no album matched yet",
@@ -181,6 +181,7 @@ EN = {
     "本地封面": "Local cover",
     "封面分辨率决定 cover.jpg 的尺寸；嵌入选项决定写进音频文件的封面": "Cover size sets cover.jpg; Embed sets the cover written into the audio files",
     "下移": "Down",
+    "选中曲目后按回车或双击，即可编辑歌曲名和歌手；↑ ↓ 切换曲目，编辑窗口中回车保存、Esc 取消；点击 ▶ 试听。": "Select a track and press Enter or double-click to edit its title and artist; ↑ ↓ switch tracks, Enter saves and Esc cancels in the editor; click ▶ to preview.",
     "编辑曲目": "Edit track",
     "输出目录": "Output",
     "浏览": "Browse",

@@ -130,5 +130,5 @@ class InfoTests(unittest.TestCase):
         self.assertEqual(match_status(2, None, 0), "已导入 2 首 · 尚未匹配专辑")
         self.assertEqual(match_status(4, record, 0), "本地多 2 首 · 请对照实体 CD，使用时长匹配或插入缺曲")
         self.assertEqual(match_status(1, record, 0), "本地少 1 首 · 请核对实体 CD 版本或重新匹配")
-        self.assertEqual(match_status(2, record, 1), "2 首已对应 · 双击编辑 / 上下移动 · 橙行时长不同")
-        self.assertEqual(match_status(2, record, 0), "2 首已对应 · 双击编辑 / 上下移动")
+        self.assertEqual(match_status(2, record, 1), "2 首已对应 · 双击或回车编辑 / 上下移动 · 橙行时长不同")
+        self.assertEqual(match_status(2, record, 0), "2 首已对应 · 双击或回车编辑 / 上下移动")

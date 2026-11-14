@@ -303,6 +303,10 @@ class TracksMixin:
         self.status_var.set(tr("已移除手动缺曲，可重新选择插入位置或使用时长匹配"))
         return True
 
+    def _edit_track_from_key(self, _event=None) -> str:
+        self._edit_track()
+        return "break"
+
     def _edit_track(self) -> None:
         if self.updating:
             return
@@ -330,6 +334,13 @@ class TracksMixin:
         ttk.Label(frame, text=tr("歌手"), style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Entry(frame, textvariable=artist_var, width=40).grid(row=2, column=1, sticky="ew", pady=5, padx=(12, 0))
 
+        def close():
+            dialog.destroy()
+            # 焦点回到曲目表的同一行，可继续用 ↑ ↓ 和回车逐首编辑。
+            if index < len(self.tracks_tree.get_children()):
+                self.tracks_tree.focus(str(index))
+            self.tracks_tree.focus_set()
+
         def save():
             if not title_var.get().strip():
                 messagebox.showwarning(tr("缺少歌曲名"), tr("歌曲名不能为空。"), parent=dialog)
@@ -344,7 +355,7 @@ class TracksMixin:
             self.metadata_dirty = True
             self._refresh_tracks()
             self.tracks_tree.selection_set(str(index))
-            dialog.destroy()
+            close()
 
         def delete_manual():
             confirmed = messagebox.askyesno(
@@ -353,17 +364,19 @@ class TracksMixin:
                 parent=dialog,
             )
             if confirmed and self._delete_manual_track(index):
-                dialog.destroy()
+                close()
 
         if track.origin in MANUAL_ORIGINS and self.album.collection_id is not None:
             ttk.Button(frame, text=tr("删除手动曲目"), command=delete_manual).grid(row=3, column=0, sticky="w", pady=(16, 0))
         buttons = ttk.Frame(frame, style="Card.TFrame")
         buttons.grid(row=3, column=1, sticky="e", pady=(16, 0))
-        ttk.Button(buttons, text=tr("取消"), command=dialog.destroy).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text=tr("取消"), command=close).pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text=tr("保存"), style="Accent.TButton", command=save).pack(side="left")
         title_entry.focus_set()
-        dialog.bind("<Return>", lambda _event: save())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        for key in ("<Return>", "<KP_Enter>"):
+            dialog.bind(key, lambda _event: save())
+        dialog.bind("<Escape>", lambda _event: close())
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2

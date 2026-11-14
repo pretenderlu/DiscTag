@@ -122,4 +122,4 @@ def match_status(source_count: int, album: AlbumMetadata | None, duration_warnin
     if source_count < len(album.tracks):
         return tr("本地少 {0} 首 · 请核对实体 CD 版本或重新匹配", len(album.tracks) - source_count)
     warning = tr(" · 橙行时长不同") if duration_warnings else ""
-    return tr("{0} 首已对应 · 双击编辑 / 上下移动{1}", source_count, warning)
+    return tr("{0} 首已对应 · 双击或回车编辑 / 上下移动{1}", source_count, warning)

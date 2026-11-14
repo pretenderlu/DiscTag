@@ -520,6 +520,12 @@ class AppTests(unittest.TestCase):
         a._save_settings.assert_called_once()
         a._restart.assert_called_once()
 
+    def test_enter_key_opens_track_editor(self):
+        a = self.app
+        a._edit_track = Mock()
+        self.assertEqual(a._edit_track_from_key(object()), "break")
+        a._edit_track.assert_called_once()
+
     def update_info(self, notes=""):
         from disctag.updates import UpdateInfo
 

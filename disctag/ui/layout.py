@@ -228,6 +228,18 @@ class LayoutMixin:
         track_scroll.pack(side="right", fill="y")
         self.tracks_tree.bind("<Button-1>", self._track_clicked)
         self.tracks_tree.bind("<Double-1>", lambda _event: self._edit_track())
+        for key in ("<Return>", "<KP_Enter>"):
+            self.tracks_tree.bind(key, self._edit_track_from_key)
+        # 先于曲目表占位：窗口较矮时由可滚动的曲目表收缩，说明文字不被裁掉。
+        track_hint = ttk.Label(
+            right,
+            text=tr("选中曲目后按回车或双击，即可编辑歌曲名和歌手；↑ ↓ 切换曲目，编辑窗口中回车保存、Esc 取消；点击 ▶ 试听。"),
+            style="Muted.Card.TLabel",
+            justify="left",
+        )
+        track_hint.pack(side="bottom", fill="x", pady=(self._px(6), 0), before=tracks_panel)
+        # 按实际宽度换行，窗口变窄时文字折行而不是被截断。
+        track_hint.bind("<Configure>", lambda event: track_hint.configure(wraplength=max(1, event.width)))
 
         output_panel = RoundedPanel(body, padding=14, radius=self._px(10), fit_height=True)
         output_card = output_panel.content
