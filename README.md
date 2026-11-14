@@ -36,7 +36,12 @@ Windows 用户可运行 `DiscTagSetup-v2.2.0.exe` 完成安装，默认安装到
 
 Windows 版启动时会检查 GitHub 最新 Release。发现新版本后，右下角显示圆点，点击圆点或版本号可自动下载、校验并安装更新，安装完成后自动重启应用。macOS 点击后跳转到最新发布页。
 
-macOS 构建目前使用 ad-hoc 签名，未经过 Apple Developer ID 签名和公证。首次打开时，macOS 可能显示安全提示。
+macOS 构建使用 ad-hoc 签名，未经过 Apple Developer ID 签名和公证，首次打开时 macOS 会提示无法验证开发者。放行方法（只需一次）：
+
+1. 将 `DiscTag.app` 拖入“应用程序”文件夹，双击打开，在提示框中点“完成”。
+2. 打开“系统设置 → 隐私与安全性”，在页面下方找到 DiscTag 的提示，点“仍要打开”，再输入密码确认。
+
+也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/DiscTag.app` 后再打开。
 
 ## Discogs 设置
 
