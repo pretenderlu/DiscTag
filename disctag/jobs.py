@@ -89,12 +89,12 @@ class ConversionJob:
         if result.cover_error:
             self.message += tr("；cover.jpg 写入失败：{0}", result.cover_error)
         if result.trashed_sources:
-            self.message += tr("；源 WAV 已移到{0}", trash_name())
+            self.message += tr("；源文件已移到{0}", trash_name())
         if result.trash_failures:
             self.status = PARTIAL
-            self.message += tr("；{0} 个源 WAV 未能移到{1}，已保留", len(result.trash_failures), trash_name())
+            self.message += tr("；{0} 个源文件未能移到{1}，已保留", len(result.trash_failures), trash_name())
         if result.trash_skipped:
-            self.message += tr("；未全部成功，源 WAV 已全部保留")
+            self.message += tr("；未全部成功，源文件已全部保留")
 
     def fail(self, error: Exception) -> None:
         self.status = FAILED
@@ -126,7 +126,7 @@ class ConversionJob:
 
 
 def trash_sources_if_complete(job: ConversionJob, result: ConversionResult, mover=move_to_trash) -> None:
-    """Moves the job's source WAVs to the trash, but only if every track was written successfully."""
+    """Moves the job's source files to the trash, but only if every track was written successfully."""
     if not job.trash_sources:
         return
     complete = (

@@ -252,7 +252,7 @@ class LayoutMixin:
         ttk.Entry(output_row, textvariable=self.output_var).pack(side="left", fill="x", expand=True)
         ttk.Checkbutton(
             output_row,
-            text=tr("完成后将源 WAV 移到{0}", trash_name()),
+            text=tr("完成后将源文件移到{0}", trash_name()),
             variable=self.trash_sources_var,
             command=self._trash_sources_toggled,
         ).pack(side="left", padx=(self._px(12), self._px(4)))

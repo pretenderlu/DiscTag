@@ -206,7 +206,7 @@ class ProcessingMixin:
             self.sources = []
             self.source_durations = {}
             self.cue_toc = None
-            self.source_var.set(tr("源 WAV 已移到{0}", trash_name()))
+            self.source_var.set(tr("源文件已移到{0}", trash_name()))
             self._refresh_tracks()
         self._refresh_queue_view()
         self._run_next_job()
@@ -255,7 +255,7 @@ class ProcessingMixin:
             text = tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory)
             text += self._cover_note(job) + self._trash_note(job)
             if result.trash_failures:
-                messagebox.showwarning(tr("部分源 WAV 未能移到{0}", trash_name()), text, parent=self.root)
+                messagebox.showwarning(tr("部分源文件未能移到{0}", trash_name()), text, parent=self.root)
             elif result.cover_error:
                 messagebox.showwarning(tr("处理完成"), text, parent=self.root)
             else:
@@ -272,8 +272,8 @@ class ProcessingMixin:
         if not job.trash_sources or result is None:
             return ""
         if result.trash_skipped:
-            return "\n\n" + tr("未全部成功，源 WAV 已全部保留。")
-        note = "\n\n" + tr("{0} 个源 WAV 已移到{1}，可从{1}恢复。", len(result.trashed_sources), trash_name())
+            return "\n\n" + tr("未全部成功，源文件已全部保留。")
+        note = "\n\n" + tr("{0} 个源文件已移到{1}，可从{1}恢复。", len(result.trashed_sources), trash_name())
         if result.trash_failures:
             details = "\n".join(tr("{0}：{1}", failure.source.name, failure.message) for failure in result.trash_failures[:6])
             note += "\n\n" + tr("以下文件未能移动，已保留在原位置：\n{0}", details)
@@ -283,8 +283,8 @@ class ProcessingMixin:
         if self.trash_sources_var.get():
             messagebox.showinfo(
                 tr("完成后移到{0}", trash_name()),
-                tr("开启后，每张专辑全部处理成功时，导入的源 WAV 会被移到{0}，需要时可从{0}恢复。\n\n"
-                   "只要有曲目失败或中途取消，就会保留全部源 WAV；同一文件夹中的其他文件不会改动。", trash_name()),
+                tr("开启后，每张专辑全部处理成功时，导入的源文件会被移到{0}，需要时可从{0}恢复。\n\n"
+                   "只要有曲目失败或中途取消，就会保留全部源文件；按 CUE 整轨导入时会连同该 CUE 一起移走，同一文件夹中的 log 等其他文件不会改动。", trash_name()),
                 parent=self.root,
             )
 

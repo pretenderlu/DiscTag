@@ -4,7 +4,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 项目地址：[github.com/pretenderlu/DiscTag](https://github.com/pretenderlu/DiscTag)
 
-当前版本：**v2.3.1**
+当前版本：**v2.4.0**
 
 ## 功能
 
@@ -23,7 +23,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 - 根据整张专辑的曲目时长智能对齐，自动标记缺失位置，等待用户按实体 CD 曲目表确认。
 - 支持多首缺曲、曲目编辑、顺序调整、时长差异提醒和修改保护。
 - 批量队列：校对好一张 CD 后点“加入队列”，即可导入下一张；“开始处理”会按顺序逐张处理。处理期间界面保持可用，可以继续准备后面的专辑。在“队列”窗口中可查看每张专辑的状态、移除待处理项，或把失败的专辑重新排队。
-- 可选“完成后将源 WAV 移到回收站”（macOS 为废纸篓）：只有整张专辑全部处理成功才会移动，任何曲目失败或中途取消都会保留全部源文件；文件进入回收站后可随时恢复。按单曲 WAV 导入时，同一文件夹中的 cue、log 等其他文件不受影响；按 CUE 整轨导入时移走整轨文件和该 CUE，log 等其他文件不受影响。网络驱动器上的文件不会移动。
+- 可选“完成后将源文件移到回收站”（macOS 为废纸篓）：只有整张专辑全部处理成功才会移动，任何曲目失败或中途取消都会保留全部源文件；文件进入回收站后可随时恢复。按单曲 WAV 导入时，同一文件夹中的 cue、log 等其他文件不受影响；按 CUE 整轨导入时移走整轨文件和该 CUE，log 等其他文件不受影响。网络驱动器上的文件不会移动。
 - 处理过程中可随时取消：当前专辑已完成的曲目保留，未完成的临时文件自动清理，队列中其余专辑保留待处理。
 - 高 DPI 界面，内置 FFmpeg，无需单独安装。
 - 键盘操作：选中曲目后按回车编辑、空格试听或停止，Ctrl+↑ / Ctrl+↓ 调整曲序；Ctrl+O 导入、Ctrl+F 搜索、Ctrl+Enter 开始处理（macOS 为 ⌘）。点击右下角的“快捷键”可以自定义，双击曲目始终可以编辑。
@@ -35,7 +35,7 @@ DiscTag 是一款 Windows 与 macOS 桌面工具，用于整理 CD 抓轨后的 
 
 [下载 Releases](https://github.com/pretenderlu/DiscTag/releases)
 
-Windows 用户可运行 `DiscTagSetup-v2.3.1.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
+Windows 用户可运行 `DiscTagSetup-v2.4.0.exe` 完成安装，默认安装到 `%LOCALAPPDATA%\Programs\DiscTag`，不需要管理员权限。安装器会创建开始菜单快捷方式，也可选择桌面快捷方式。也提供免安装 ZIP，解压后运行 `DiscTag.exe` 并保留 `_internal` 目录。
 
 Windows 版启动时会检查 GitHub 最新 Release。发现新版本后，右下角显示圆点，点击圆点或版本号可自动下载、校验并安装更新，安装完成后自动重启应用。macOS 点击后跳转到最新发布页。
 

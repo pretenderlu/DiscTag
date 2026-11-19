@@ -278,7 +278,7 @@ def convert_album(
         or (destination.exists() and any(path.exists() and destination.samefile(path) for path in source_files))
         for destination in destinations
     ):
-        raise AudioError(tr("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。"))
+        raise AudioError(tr("输出文件会覆盖源文件，请选择其他输出目录以保留原始音轨。"))
     directory.mkdir(parents=True, exist_ok=True)
     result = ConversionResult(output_directory=directory)
     embedded = embedded_cover(cover_data, embed_max_size) if cover_data and embed_cover else None

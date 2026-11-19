@@ -40,7 +40,7 @@ class AudioTests(unittest.TestCase):
         write_wav(first)
         write_wav(second, b"\x02\x00")
         original = [first.read_bytes(), second.read_bytes()]
-        with self.assertRaisesRegex(AudioError, "源 WAV"):
+        with self.assertRaisesRegex(AudioError, "源文件"):
             convert_album([second, first], self.album, self.root, "wav")
         self.assertEqual([first.read_bytes(), second.read_bytes()], original)
 
@@ -366,7 +366,7 @@ class CueImageTests(unittest.TestCase):
         cue = directory / "disc.cue"
         cue.write_text(CUE_TEXT.format(target.name), encoding="utf-8")
         original = target.read_bytes()
-        with self.assertRaisesRegex(AudioError, "源 WAV"):
+        with self.assertRaisesRegex(AudioError, "源文件"):
             convert_album(cue_sources(parse_cue(cue), cue), self.album, self.root, "wav")
         self.assertEqual(target.read_bytes(), original)
 

@@ -69,10 +69,10 @@ class ConversionResult:
     converted_files: list[Path] = field(default_factory=list)
     failures: list[ConversionFailure] = field(default_factory=list)
     cancelled: bool = False
-    # 处理完成后移到回收站的源 WAV，以及未能移动（已保留在原位）的文件。
+    # 处理完成后移到回收站的源文件，以及未能移动（已保留在原位）的文件。
     trashed_sources: list[Path] = field(default_factory=list)
     trash_failures: list[ConversionFailure] = field(default_factory=list)
-    # 开启了“移到回收站”，但专辑未全部成功，因此保留了全部源 WAV。
+    # 开启了“移到回收站”，但专辑未全部成功，因此保留了全部源文件。
     trash_skipped: bool = False
     # cover.jpg 写入失败的原因；音轨不受影响，因此不计入 failures。
     cover_error: str = ""
