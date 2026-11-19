@@ -8,6 +8,7 @@ from pathlib import Path
 from .audio import output_directory, output_path
 from .i18n import tr
 from .models import AlbumMetadata, ConversionFailure, ConversionResult
+from .sources import SourceTrack
 from .trash import move_to_trash, trash_name
 
 PENDING = "pending"
@@ -36,7 +37,7 @@ FORMAT_LABELS = {"wav": "WAV", "flac": "FLAC", "mp3": "MP3"}
 
 @dataclass
 class ConversionJob:
-    sources: list[Path]
+    sources: list[SourceTrack]
     album: AlbumMetadata
     output_root: Path
     output_format: str
@@ -48,6 +49,9 @@ class ConversionJob:
     status: str = PENDING
     message: str = ""
     result: ConversionResult | None = None
+
+    def __post_init__(self) -> None:
+        self.sources = [SourceTrack.of(source) for source in self.sources]
 
     @property
     def title(self) -> str:
@@ -96,8 +100,21 @@ class ConversionJob:
         self.status = FAILED
         self.message = str(error)
 
-    def same_input(self, sources: list[Path]) -> bool:
-        return [path.resolve() for path in self.sources] == [path.resolve() for path in sources]
+    def same_input(self, sources: list[SourceTrack | Path]) -> bool:
+        return [source.key() for source in self.sources] == [SourceTrack.of(source).key() for source in sources]
+
+    def trash_paths(self) -> list[Path]:
+        """Files moved to the trash after success: the WAVs, or for CUE tracks the disc image(s) and the .cue."""
+        paths: list[Path] = []
+        for source in self.sources:
+            paths.append(source.path)
+        for source in self.sources:
+            if source.cue is not None:
+                paths.append(source.cue)
+        unique: dict[str, Path] = {}
+        for path in paths:
+            unique.setdefault(os.path.normcase(os.path.abspath(path)), path)
+        return list(unique.values())
 
     def output_paths(self) -> set[Path]:
         """Every file the job writes, normalised (absolute, case-folded on Windows) so paths can be compared."""
@@ -121,7 +138,7 @@ def trash_sources_if_complete(job: ConversionJob, result: ConversionResult, move
     if not complete:
         result.trash_skipped = True
         return
-    moved, failures = mover(job.sources)
+    moved, failures = mover(job.trash_paths())
     result.trashed_sources = list(moved)
     result.trash_failures = [ConversionFailure(path, message) for path, message in failures]
 

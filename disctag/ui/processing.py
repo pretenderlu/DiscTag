@@ -68,7 +68,9 @@ class ProcessingMixin:
         if not self.output_var.get().strip():
             messagebox.showwarning(tr("缺少输出目录"), tr("请选择输出根目录。"), parent=self.root)
             return None
-        if self.format_var.get() != "wav":
+        if self.format_var.get() != "wav" or any(
+            source.is_segment and source.path.suffix.lower() != ".wav" for source in self.sources
+        ):
             try:
                 find_ffmpeg()
             except Exception as exc:
@@ -203,6 +205,7 @@ class ProcessingMixin:
                 self.preview.stop()
             self.sources = []
             self.source_durations = {}
+            self.cue_toc = None
             self.source_var.set(tr("源 WAV 已移到{0}", trash_name()))
             self._refresh_tracks()
         self._refresh_queue_view()

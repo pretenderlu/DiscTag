@@ -18,8 +18,9 @@ from .itunes import COVER_SIZES, ITunesClient
 from .jobs import ConversionJob, JobQueue
 from .models import AlbumMetadata, AlbumSummary
 from .musicbrainz import MusicBrainzClient
-from .playback import AudioPreview
+from .playback import AudioPreview, cleanup_preview_files
 from .settings import load_settings
+from .sources import SourceTrack
 from .ui.catalog import CatalogMixin
 from .ui.common import (
     BACKGROUND,
@@ -71,8 +72,10 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.discogs_client = DiscogsClient()
         self.musicbrainz_client = MusicBrainzClient()
         self.preview = AudioPreview(self.root, self._playback_changed)
-        self.sources: list[Path] = []
-        self.source_durations: dict[Path, float | None] = {}
+        self.sources: list[SourceTrack] = []
+        self.source_durations: dict[SourceTrack, float | None] = {}
+        # CUE 整轨导入时由 CUE 精确计算的 MusicBrainz TOC；单曲 WAV 导入时为 None。
+        self.cue_toc: str | None = None
         self.results: list[AlbumSummary] = []
         self.result_markers: dict[tuple, str] = {}
         self.album_cache: dict[tuple, AlbumMetadata] = {}
@@ -239,6 +242,7 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
             if self.conversion_thread is not None:
                 self.conversion_thread.join(timeout=5)
         self.preview.stop()
+        cleanup_preview_files()
         self._close_easter_egg()
         self._close_update_dialog()
         self._save_settings()

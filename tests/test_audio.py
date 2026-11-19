@@ -1,5 +1,6 @@
 import io
 import os
+import random
 import tempfile
 import unittest
 import wave
@@ -13,6 +14,7 @@ from PIL import Image
 
 from disctag.audio import AudioError, convert_album, find_ffmpeg, output_directory, output_path
 from disctag.models import AlbumMetadata, TrackMetadata
+from disctag.sources import SourceTrack
 
 
 def write_wav(path, sample=b"\x01\x00"):
@@ -261,3 +263,151 @@ class AudioTests(unittest.TestCase):
         from disctag.audio import wav_duration
 
         self.assertAlmostEqual(wav_duration(path), 1.0, places=2)
+
+
+def write_image_wav(path, fmt_tag, bits, frames, extensible=False, channels=2, rate=44100):
+    """A WAV disc image with an odd-sized LIST chunk before the data, to exercise the RIFF parser."""
+    import struct
+
+    block_align = channels * bits // 8
+    if extensible:
+        sub_format = struct.pack("<IHH8s", fmt_tag, 0, 0x0010, b"\x80\x00\x00\xaa\x008\x9bq")
+        fmt = struct.pack("<HHIIHHHHI16s", 0xFFFE, channels, rate, rate * block_align, block_align, bits, 22, bits, 3,
+                          sub_format)
+    else:
+        fmt = struct.pack("<HHIIHH", fmt_tag, channels, rate, rate * block_align, block_align, bits)
+    pcm = random.Random(bits).randbytes(frames * block_align)
+    body = (b"fmt " + struct.pack("<I", len(fmt)) + fmt
+            + b"LIST" + struct.pack("<I", 5) + b"INFOx\x00"
+            + b"data" + struct.pack("<I", len(pcm)) + pcm)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WAVE" + body)
+    return pcm, block_align
+
+
+def data_chunk(path):
+    import struct
+
+    raw = path.read_bytes()
+    position = 12
+    while position + 8 <= len(raw):
+        chunk_id, size = struct.unpack("<4sI", raw[position:position + 8])
+        if chunk_id == b"data":
+            return raw[position + 8:position + 8 + size]
+        position += 8 + size + (size & 1)
+    raise AssertionError("no data chunk")
+
+
+CUE_TEXT = """PERFORMER "Disc Artist"
+TITLE "Disc"
+FILE "{0}" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Two"
+    INDEX 00 00:00:70
+    INDEX 01 00:01:00
+  TRACK 03 AUDIO
+    TITLE "Three"
+    INDEX 01 00:02:00
+"""
+
+
+class CueImageTests(unittest.TestCase):
+    # 3.5 秒整轨：第 1 轨 0–1 秒，第 2 轨 1–2 秒，第 3 轨 2 秒到结尾。
+    FRAMES = 44100 * 7 // 2
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.album = AlbumMetadata("Album", "Artist", "Artist", tracks=[
+            TrackMetadata(title, "Artist", number, 3) for number, title in enumerate(("One", "Two", "Three"), 1)
+        ])
+
+    def image(self, name="image.wav", fmt_tag=1, bits=16, extensible=False, folder="rip"):
+        from disctag.cue import cue_sources, parse_cue
+
+        image = self.root / folder / name
+        pcm, block_align = write_image_wav(image, fmt_tag, bits, self.FRAMES, extensible)
+        cue = image.with_suffix(".cue")
+        cue.write_text(CUE_TEXT.format(name), encoding="utf-8")
+        return image, cue, cue_sources(parse_cue(cue), cue), pcm, block_align
+
+    def test_wav_image_segments_are_sample_exact(self):
+        for fmt_tag, bits, extensible in ((1, 16, False), (1, 24, False), (3, 32, True)):
+            with self.subTest(bits=bits, extensible=extensible):
+                image, cue, sources, pcm, block_align = self.image(folder=f"rip{bits}", fmt_tag=fmt_tag, bits=bits,
+                                                                   extensible=extensible)
+                original = image.read_bytes(), cue.read_bytes()
+                output = self.root / f"out{bits}"
+                with patch("disctag.audio.find_ffmpeg", side_effect=AssertionError("ffmpeg not needed")):
+                    result = convert_album(sources, self.album, output, "wav")
+                self.assertFalse(result.failures)
+                bounds = [(0, 44100), (44100, 88200), (88200, self.FRAMES)]
+                for path, (start, end), title in zip(result.converted_files, bounds, ("One", "Two", "Three"),
+                                                     strict=True):
+                    self.assertEqual(data_chunk(path), pcm[start * block_align:end * block_align])
+                    self.assertEqual(str(WAVE(path)["TIT2"]), title)
+                    with open(path, "rb") as written, open(image, "rb") as source:
+                        # fmt 块原样复制（含 WAVE_FORMAT_EXTENSIBLE 扩展字段）。
+                        self.assertEqual(written.read(12)[:4], b"RIFF")
+                        self.assertEqual(written.read(8 + (40 if extensible else 16))[8:],
+                                         source.read(20 + (40 if extensible else 16))[20:])
+                self.assertEqual((image.read_bytes(), cue.read_bytes()), original)
+
+    def test_image_cannot_be_overwritten(self):
+        directory = output_directory(self.root, self.album)
+        target = output_path(directory, self.album.tracks[0], "wav")
+        from disctag.cue import cue_sources, parse_cue
+
+        write_image_wav(target, 1, 16, self.FRAMES)
+        cue = directory / "disc.cue"
+        cue.write_text(CUE_TEXT.format(target.name), encoding="utf-8")
+        original = target.read_bytes()
+        with self.assertRaisesRegex(AudioError, "源 WAV"):
+            convert_album(cue_sources(parse_cue(cue), cue), self.album, self.root, "wav")
+        self.assertEqual(target.read_bytes(), original)
+
+    def test_source_duration_and_audio_info(self):
+        from disctag.audio import audio_info, source_duration
+
+        image, _cue, sources, _pcm, _ = self.image()
+        self.assertEqual(audio_info(image), (44100, 16, 3.5))
+        self.assertEqual([source_duration(source) for source in sources], [1.0, 1.0, 1.5])
+        self.assertIsNone(source_duration(SourceTrack(self.root / "missing.wav", 0, None, 1, Path("x.cue"))))
+
+    def test_compressed_image_segments_go_through_ffmpeg(self):
+        from disctag import audio
+
+        source = SourceTrack(self.root / "image.ape", 75, 150, 2, self.root / "image.cue")
+        last = SourceTrack(self.root / "image.ape", 150, None, 3, self.root / "image.cue")
+        with patch("disctag.audio.audio_info", return_value=(44100, 24, 10.0)), \
+                patch("disctag.audio._run_ffmpeg") as run:
+            audio.extract_wav_segment(source, self.root / "a.wav", "ffmpeg")
+            audio._convert_file("ffmpeg", last, self.root / "b.flac", "flac", "V0")
+        wav_command, flac_command = (call.args[0] for call in run.call_args_list)
+        self.assertEqual(wav_command[wav_command.index("-af") + 1], "atrim=start_sample=44100:end_sample=88200,asetpts=PTS-STARTPTS")
+        self.assertEqual(wav_command[wav_command.index("-c:a") + 1], "pcm_s24le")
+        self.assertEqual(flac_command[flac_command.index("-vn") + 1:flac_command.index("-vn") + 3],
+                         ["-af", "atrim=start_sample=88200,asetpts=PTS-STARTPTS"])
+        self.assertEqual(flac_command[flac_command.index("-c:a") + 1], "flac")
+
+    def test_compressed_image_to_wav_requires_ffmpeg(self):
+        source = SourceTrack(self.root / "image.flac", 0, 75, 1, self.root / "image.cue")
+        album = AlbumMetadata("Album", "Artist", "Artist", tracks=[TrackMetadata("One", "Artist", 1)])
+        with patch("disctag.audio.find_ffmpeg", side_effect=AudioError("no ffmpeg")):
+            with self.assertRaisesRegex(AudioError, "no ffmpeg"):
+                convert_album([source], album, self.root / "out", "wav")
+
+    def test_plain_file_conversion_command_is_unchanged(self):
+        from disctag import audio
+
+        with patch("disctag.audio._run_ffmpeg") as run:
+            audio._convert_file("ffmpeg", self.root / "a.wav", self.root / "a.flac", "flac", "V0")
+        self.assertEqual(run.call_args.args[0], [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(self.root / "a.wav"),
+            "-map", "0:a:0", "-vn", "-map_metadata", "-1", "-c:a", "flac", "-compression_level", "5",
+            str(self.root / "a.flac"),
+        ])

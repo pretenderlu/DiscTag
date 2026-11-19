@@ -4,23 +4,27 @@ import io
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from mutagen import MutagenError
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+from mutagen.monkeysaudio import MonkeysAudio
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 from PIL import Image, ImageOps
 
 from .i18n import tr
 from .models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMetadata, renumber_tracks
+from .sources import FRAMES_PER_SECOND, SourceTrack
 
 
 class AudioError(RuntimeError):
@@ -76,6 +80,139 @@ def wav_duration(path: Path) -> float | None:
         return None
 
 
+@dataclass(frozen=True)
+class _WavLayout:
+    fmt_chunk: bytes
+    data_offset: int
+    data_size: int
+    block_align: int
+    sample_rate: int
+    bits: int
+
+
+def _wav_layout(path: Path) -> _WavLayout:
+    """Locates the ``fmt `` and ``data`` chunks of a RIFF/WAVE file (PCM, float and WAVE_FORMAT_EXTENSIBLE)."""
+    file_size = path.stat().st_size
+    with open(path, "rb") as stream:
+        header = stream.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            raise AudioError(tr("不是有效的 WAV 文件：{0}", path.name))
+        fmt_chunk = None
+        data_offset = data_size = None
+        position = 12
+        while position + 8 <= file_size and (fmt_chunk is None or data_offset is None):
+            stream.seek(position)
+            chunk_id, size = struct.unpack("<4sI", stream.read(8))
+            body = position + 8
+            if chunk_id == b"fmt ":
+                fmt_chunk = stream.read(size)
+            elif chunk_id == b"data":
+                data_offset = body
+                # 流式写入的 WAV 可能把长度记为 0 或 0xFFFFFFFF，按实际文件大小截断。
+                data_size = min(size, file_size - body) if size else file_size - body
+            position = body + size + (size & 1)
+    if fmt_chunk is None or len(fmt_chunk) < 16 or data_offset is None:
+        raise AudioError(tr("不是有效的 WAV 文件：{0}", path.name))
+    _tag, _channels, sample_rate, _byte_rate, block_align, bits = struct.unpack("<HHIIHH", fmt_chunk[:16])
+    if not sample_rate or not block_align:
+        raise AudioError(tr("不是有效的 WAV 文件：{0}", path.name))
+    return _WavLayout(fmt_chunk, data_offset, data_size - data_size % block_align, block_align, sample_rate, bits)
+
+
+def audio_info(path: Path) -> tuple[int, int, float]:
+    """Returns (sample rate, bits per sample, length in seconds) of a WAV, FLAC or APE file."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".flac":
+            info = FLAC(path).info
+            return info.sample_rate, info.bits_per_sample, info.length
+        if suffix == ".ape":
+            info = MonkeysAudio(path).info
+            return info.sample_rate, info.bits_per_sample or 16, info.length
+        if suffix == ".wav":
+            try:
+                layout = _wav_layout(path)
+            except (AudioError, struct.error):
+                info = WAVE(path).info
+                return info.sample_rate, info.bits_per_sample, info.length
+            return layout.sample_rate, layout.bits, layout.data_size / layout.block_align / layout.sample_rate
+    except (OSError, MutagenError) as exc:
+        raise AudioError(tr("无法读取音频文件 {0}：{1}", path.name, exc)) from exc
+    raise AudioError(tr("不支持的音频格式：{0}", path.name))
+
+
+def source_duration(source: SourceTrack | Path) -> float | None:
+    source = SourceTrack.of(source)
+    if not source.is_segment:
+        return wav_duration(source.path)
+    if source.end_frame is not None:
+        return (source.end_frame - source.start_frame) / FRAMES_PER_SECOND
+    try:
+        length = audio_info(source.path)[2] - source.start_frame / FRAMES_PER_SECOND
+    except AudioError:
+        return None
+    return length if length > 0 else None
+
+
+def _segment_samples(source: SourceTrack, sample_rate: int) -> tuple[int, int | None]:
+    start = source.start_frame * sample_rate // FRAMES_PER_SECOND
+    end = None if source.end_frame is None else source.end_frame * sample_rate // FRAMES_PER_SECOND
+    return start, end
+
+
+def extract_wav_segment(
+    source: SourceTrack,
+    destination: Path,
+    ffmpeg: str | None = None,
+    cancel: threading.Event | None = None,
+) -> None:
+    """Writes one track of a disc image as a WAV file, sample-exactly."""
+    if source.path.suffix.lower() != ".wav":
+        sample_rate, bits, _length = audio_info(source.path)
+        start, end = _segment_samples(source, sample_rate)
+        codec = "pcm_s16le" if bits <= 16 else "pcm_s24le" if bits <= 24 else "pcm_s32le"
+        _run_ffmpeg([
+            ffmpeg or find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-i", str(source.path), "-map", "0:a:0", "-vn", "-af", _trim_filter(start, end),
+            "-map_metadata", "-1", "-c:a", codec, str(destination),
+        ], cancel)
+        return
+    try:
+        layout = _wav_layout(source.path)
+    except (OSError, struct.error) as exc:
+        raise AudioError(tr("无法读取音频文件 {0}：{1}", source.path.name, exc)) from exc
+    total = layout.data_size // layout.block_align
+    start, end = _segment_samples(source, layout.sample_rate)
+    end = total if end is None else min(end, total)
+    if start >= end:
+        raise AudioError(tr("CUE 音轨超出整轨文件长度：{0}", source.name))
+    length = (end - start) * layout.block_align
+    fmt = layout.fmt_chunk + (b"\x00" if len(layout.fmt_chunk) & 1 else b"")
+    riff_size = 4 + 8 + len(fmt) + 8 + length + (length & 1)
+    with open(source.path, "rb") as reader, open(destination, "wb") as writer:
+        writer.write(b"RIFF" + struct.pack("<I", riff_size) + b"WAVE")
+        writer.write(b"fmt " + struct.pack("<I", len(layout.fmt_chunk)) + fmt)
+        writer.write(b"data" + struct.pack("<I", length))
+        reader.seek(layout.data_offset + start * layout.block_align)
+        remaining = length
+        while remaining:
+            if cancel is not None and cancel.is_set():
+                raise ConversionCancelled(tr("已取消处理。"))
+            block = reader.read(min(remaining, 1 << 20))
+            if not block:
+                raise AudioError(tr("CUE 音轨超出整轨文件长度：{0}", source.name))
+            writer.write(block)
+            remaining -= len(block)
+        if length & 1:
+            writer.write(b"\x00")
+
+
+def _trim_filter(start: int, end: int | None) -> str:
+    trim = f"atrim=start_sample={start}" + ("" if end is None else f":end_sample={end}")
+    return f"{trim},asetpts=PTS-STARTPTS"
+
+
 def clean_track_title(path: Path) -> str:
     title = re.sub(r"^\s*\d+\s*[-._ ]+\s*", "", path.stem).strip()
     return title or path.stem
@@ -107,7 +244,7 @@ def output_path(directory: Path, track: TrackMetadata, extension: str) -> Path:
 
 
 def convert_album(
-    sources: list[Path],
+    sources: list[SourceTrack | Path],
     album: AlbumMetadata,
     output_root: Path,
     output_format: str = "flac",
@@ -119,6 +256,7 @@ def convert_album(
     *,
     cancel: threading.Event | None = None,
 ) -> ConversionResult:
+    sources = [SourceTrack.of(source) for source in sources]
     if len(sources) != len(album.tracks):
         raise AudioError(tr("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。"))
     if any(track.origin == "auto-manual" for track in album.tracks):
@@ -126,13 +264,18 @@ def convert_album(
     if output_format not in {"wav", "flac", "mp3"}:
         raise AudioError(tr("不支持的输出格式。"))
     renumber_tracks(album.tracks)
-    ffmpeg = None if output_format == "wav" else find_ffmpeg()
+    needs_ffmpeg = output_format != "wav" or any(
+        source.is_segment and source.path.suffix.lower() != ".wav" for source in sources
+    )
+    ffmpeg = find_ffmpeg() if needs_ffmpeg else None
     directory = output_directory(output_root, album)
     destinations = [output_path(directory, track, output_format) for track in album.tracks]
-    source_paths = {source.resolve() for source in sources}
+    # 单曲 WAV 与 CUE 整轨文件一样都不能被覆盖。
+    source_files = list(dict.fromkeys(source.path for source in sources))
+    source_paths = {path.resolve() for path in source_files}
     if any(
         destination.resolve() in source_paths
-        or (destination.exists() and any(source.exists() and destination.samefile(source) for source in sources))
+        or (destination.exists() and any(path.exists() and destination.samefile(path) for path in source_files))
         for destination in destinations
     ):
         raise AudioError(tr("输出文件会覆盖源 WAV，请选择其他输出目录以保留原始音轨。"))
@@ -194,14 +337,18 @@ def embedded_cover(cover_data: bytes, max_size: int | None) -> bytes:
 
 def _convert_file(
     ffmpeg: str | None,
-    source: Path,
+    source: SourceTrack | Path,
     destination: Path,
     output_format: str,
     mp3_quality: str,
     cancel: threading.Event | None = None,
 ) -> None:
+    source = SourceTrack.of(source)
     if output_format == "wav":
-        shutil.copyfile(source, destination)
+        if source.is_segment:
+            extract_wav_segment(source, destination, ffmpeg, cancel)
+        else:
+            shutil.copyfile(source.path, destination)
         return
     command = [
         ffmpeg,
@@ -211,15 +358,20 @@ def _convert_file(
         "-nostdin",
         "-y",
         "-i",
-        str(source),
+        str(source.path),
         "-map",
         "0:a:0",
         "-vn",
+    ]
+    if source.is_segment:
+        sample_rate = audio_info(source.path)[0]
+        command.extend(["-af", _trim_filter(*_segment_samples(source, sample_rate))])
+    command.extend([
         "-map_metadata",
         "-1",
         "-c:a",
         "flac" if output_format == "flac" else "libmp3lame",
-    ]
+    ])
     if output_format == "flac":
         command.extend(["-compression_level", "5"])
     elif mp3_quality == "V0":
@@ -227,6 +379,10 @@ def _convert_file(
     else:
         command.extend(["-b:a", "320k"])
     command.append(str(destination))
+    _run_ffmpeg(command, cancel)
+
+
+def _run_ffmpeg(command: list[str], cancel: threading.Event | None = None) -> None:
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW

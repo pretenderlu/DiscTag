@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 
-from .audio import wav_duration
+from .audio import extract_wav_segment, source_duration, wav_duration
 from .i18n import tr
+from .sources import SourceTrack
 
 
 # CD-DA：44.1 kHz、16 bit、双声道，每秒 176400 字节；WAV 头约 44 字节。
@@ -23,11 +27,30 @@ def _estimated_duration(path: Path) -> float:
     return max(size - WAV_HEADER_BYTES, 0) / CD_BYTES_PER_SECOND
 
 
+def preview_directory() -> Path:
+    return Path(tempfile.gettempdir()) / "DiscTag" / "preview"
+
+
+def cleanup_preview_files() -> None:
+    """Removes leftover CUE preview extracts (e.g. from a previous run)."""
+    try:
+        entries = list(preview_directory().glob("*.wav"))
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            entry.unlink()
+        except OSError:
+            pass
+
+
 class AudioPreview:
     def __init__(self, root, on_change):
         self.root = root
         self.on_change = on_change
-        self.path: Path | None = None
+        self.path: SourceTrack | None = None
+        # CUE 音轨试听时临时切出的 WAV，停止或换曲时删除。
+        self.temporary: Path | None = None
         self.process: subprocess.Popen | None = None
         self.started = 0.0
         self.duration = 0.0
@@ -37,14 +60,19 @@ class AudioPreview:
     def playing(self) -> bool:
         return self.path is not None
 
-    def toggle(self, path: Path) -> None:
-        if self.playing and self.path == path:
+    def toggle(self, source: SourceTrack | Path) -> None:
+        source = SourceTrack.of(source)
+        if self.playing and self.path == source:
             self.stop()
         else:
-            self.play(path)
+            self.play(source)
 
-    def play(self, path: Path) -> None:
+    def play(self, source: SourceTrack | Path) -> None:
         self.stop()
+        source = SourceTrack.of(source)
+        path = source.path
+        if source.is_segment:
+            path = self._extract(source)
         try:
             if sys.platform == "win32":
                 import winsound
@@ -60,11 +88,15 @@ class AudioPreview:
                     stderr=subprocess.DEVNULL,
                 )
         except (OSError, RuntimeError) as exc:
-            raise RuntimeError(tr("无法播放 {0}：{1}", path.name, exc)) from exc
-        self.path = path
+            self._remove_temporary()
+            raise RuntimeError(tr("无法播放 {0}：{1}", source.name, exc)) from exc
+        self.path = source
         self.started = time.monotonic()
-        self.duration = wav_duration(path) or _estimated_duration(path)
-        self.on_change(True, path)
+        if source.is_segment:
+            self.duration = source_duration(source) or _estimated_duration(path)
+        else:
+            self.duration = wav_duration(path) or _estimated_duration(path)
+        self.on_change(True, source)
         self._poll_id = self.root.after(250, self._poll)
 
     def stop(self) -> None:
@@ -91,7 +123,32 @@ class AudioPreview:
         self.process = None
         self.path = None
         self.duration = 0.0
+        self._remove_temporary()
         self.on_change(False, path)
+
+    def _extract(self, source: SourceTrack) -> Path:
+        directory = preview_directory()
+        destination = directory / f"{uuid.uuid4().hex}.wav"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            extract_wav_segment(source, destination)
+        except Exception as exc:
+            try:
+                destination.unlink()
+            except OSError:
+                pass
+            raise RuntimeError(tr("无法播放 {0}：{1}", source.name, exc)) from exc
+        self.temporary = destination
+        return destination
+
+    def _remove_temporary(self) -> None:
+        temporary, self.temporary = self.temporary, None
+        if temporary is None:
+            return
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
 
     def _poll(self) -> None:
         self._poll_id = None

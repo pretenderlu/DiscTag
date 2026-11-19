@@ -92,3 +92,19 @@ class MoveToTrashTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_cue_album_trashes_image_and_cue_only(self):
+        from disctag.sources import SourceTrack
+
+        image, cue, log = self.root / "image.wav", self.root / "image.cue", self.root / "image.log"
+        for path in (image, cue, log):
+            path.write_bytes(b"data")
+        sources = [SourceTrack(image, 0, 100, 1, cue), SourceTrack(image, 100, None, 2, cue)]
+        job = ConversionJob(sources, AlbumMetadata("A", "B", "B"), self.root / "out", "flac", "V0",
+                            None, True, None, trash_sources=True)
+        mover = Mock(return_value=([image, cue], []))
+        result = self.result()
+        trash_sources_if_complete(job, result, mover)
+        mover.assert_called_once_with([image, cue])
+        self.assertEqual(result.trashed_sources, [image, cue])
+        self.assertTrue(log.exists())

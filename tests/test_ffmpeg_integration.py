@@ -95,3 +95,87 @@ class FFmpegIntegrationTests(unittest.TestCase):
                 self.assertEqual(audio.info.sample_rate, 44100)
                 self.assertEqual(audio.info.bitrate_mode, BitrateMode.VBR)
                 self.assertAlmostEqual(audio.info.length, 2.0, delta=0.2)
+
+
+@unittest.skipUnless(FFMPEG, "DISCTAG_FFMPEG is not set")
+class FFmpegCueImageTests(unittest.TestCase):
+    """A FLAC disc image + CUE is cut sample-exactly, whatever the output format."""
+
+    SAMPLES = 44100 * 4
+    # 轨道起点（CD 帧）：0、100、213 —— 有意不落在整秒上。
+    STARTS = (0, 100, 213)
+
+    def setUp(self):
+        import subprocess
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.pcm = b"".join(struct.pack("<hh", (i * 7) % 65536 - 32768, 32767 - (i * 3) % 65536)
+                            for i in range(self.SAMPLES))
+        ramp = self.root / "ramp.wav"
+        write_pcm_wav(ramp, 1, 16, self.pcm)
+        image = self.root / "rip" / "image.flac"
+        image.parent.mkdir()
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(ramp), "-c:a", "flac",
+                        str(image)], check=True)
+        lines = ['TITLE "Disc"', 'FILE "image.wav" WAVE']  # CUE 写的是 .wav，整轨已另压为 .flac
+        for number, start in enumerate(self.STARTS, 1):
+            lines += [f"  TRACK {number:02d} AUDIO", f'    TITLE "T{number}"',
+                      f"    INDEX 01 00:{start // 75:02d}:{start % 75:02d}"]
+        cue = image.with_suffix(".cue")
+        cue.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        from disctag.cue import cue_sources, parse_cue
+
+        self.sources = cue_sources(parse_cue(cue), cue)
+        self.assertEqual(self.sources[0].path, image)
+
+    def album(self):
+        from disctag.models import AlbumMetadata, TrackMetadata
+
+        return AlbumMetadata("Album", "Artist", "Artist", tracks=[
+            TrackMetadata(f"T{number}", "Artist", number, 3) for number in range(1, 4)
+        ])
+
+    def expected(self):
+        bounds = [start * 588 for start in self.STARTS] + [self.SAMPLES]
+        return [self.pcm[start * 4:end * 4] for start, end in zip(bounds, bounds[1:], strict=False)]
+
+    def decode(self, path: Path) -> bytes:
+        import subprocess
+
+        # 内置 FFmpeg 只带 wav/flac/mp3 封装器，先解码为 WAV 再取 data 块。
+        decoded = path.with_name(path.stem + ".decoded.wav")
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path), "-map_metadata", "-1",
+                        "-c:a", "pcm_s16le", str(decoded)], check=True)
+        raw = decoded.read_bytes()
+        decoded.unlink()
+        position = 12
+        while position + 8 <= len(raw):
+            chunk_id, size = struct.unpack("<4sI", raw[position:position + 8])
+            if chunk_id == b"data":
+                return raw[position + 8:position + 8 + size]
+            position += 8 + size + (size & 1)
+        raise AssertionError("no data chunk")
+
+    def convert(self, output_format: str):
+        from disctag.audio import convert_album
+
+        result = convert_album(self.sources, self.album(), self.root / output_format, output_format)
+        self.assertFalse(result.failures)
+        self.assertEqual(len(result.converted_files), 3)
+        return result.converted_files
+
+    def test_wav(self):
+        for path, expected in zip(self.convert("wav"), self.expected(), strict=True):
+            self.assertEqual(self.decode(path), expected)
+            self.assertEqual(path.read_bytes().count(expected[:4096]), 1)
+
+    def test_flac(self):
+        for path, expected in zip(self.convert("flac"), self.expected(), strict=True):
+            self.assertEqual(FLAC(path)["title"], [path.stem.split(" - ")[1]])
+            self.assertEqual(self.decode(path), expected)
+
+    def test_mp3(self):
+        for path, expected in zip(self.convert("mp3"), self.expected(), strict=True):
+            self.assertAlmostEqual(MP3(path).info.length, len(expected) / 4 / 44100, delta=0.1)

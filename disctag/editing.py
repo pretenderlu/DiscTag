@@ -6,6 +6,7 @@ from .audio import clean_track_title
 from .i18n import tr
 from .matching import align_tracks_by_duration
 from .models import AlbumMetadata, TrackMetadata, renumber_tracks
+from .sources import SourceTrack
 
 MANUAL_ORIGINS = {"manual", "auto-manual"}
 DURATION_WARNING_MS = 10000
@@ -15,11 +16,18 @@ class EditError(ValueError):
     pass
 
 
-def manual_tracks(sources: list[Path], artist: str) -> list[TrackMetadata]:
+def manual_tracks(sources: list[SourceTrack | Path], artist: str) -> list[TrackMetadata]:
+    sources = [SourceTrack.of(source) for source in sources]
     return [
-        TrackMetadata(clean_track_title(path), artist, index, len(sources), origin="manual")
-        for index, path in enumerate(sources, 1)
+        TrackMetadata(source_title(source), source.performer or artist, index, len(sources), origin="manual")
+        for index, source in enumerate(sources, 1)
     ]
+
+
+def source_title(source: SourceTrack | Path) -> str:
+    """CUE title when there is one, otherwise the file name without its track-number prefix."""
+    source = SourceTrack.of(source)
+    return source.title or clean_track_title(source.path)
 
 
 def can_insert(album: AlbumMetadata | None, source_count: int) -> bool:

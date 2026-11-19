@@ -6,6 +6,7 @@ from pathlib import Path
 
 from disctag.jobs import CANCELLED, DONE, FAILED, PARTIAL, PENDING, RUNNING, ConversionJob, JobQueue
 from disctag.models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMetadata
+from disctag.sources import SourceTrack
 
 
 class JobQueueTests(unittest.TestCase):
@@ -142,3 +143,27 @@ class JobQueueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def cue_job(self, folder="cue", starts=(0, 100, 200)):
+        image, cue = self.root / folder / "image.flac", self.root / folder / "image.cue"
+        ends = [*starts[1:], None]
+        sources = [SourceTrack(image, start, end, number, cue, f"T{number}")
+                   for number, (start, end) in enumerate(zip(starts, ends, strict=True), 1)]
+        return ConversionJob(sources, AlbumMetadata("Album", "Artist", "Artist"), self.root / "out", "flac", "V0",
+                             None, True, None)
+
+    def test_same_input_with_cue_segments(self):
+        job = self.cue_job()
+        same = [SourceTrack(Path(str(source.path).upper() if sys.platform == "win32" else source.path),
+                            source.start_frame, source.end_frame, source.number, source.cue, "Other title")
+                for source in job.sources]
+        self.assertTrue(job.same_input(same))
+        self.assertFalse(job.same_input(self.cue_job(starts=(0, 100, 201)).sources))
+        self.assertFalse(job.same_input([source.path for source in job.sources]))
+        self.assertTrue(self.job().same_input([self.root / "a" / "01.wav", self.root / "a" / "02.wav"]))
+        self.assertTrue(all(isinstance(source, SourceTrack) for source in self.job().sources))
+
+    def test_trash_paths(self):
+        job = self.cue_job()
+        self.assertEqual(job.trash_paths(), [self.root / "cue" / "image.flac", self.root / "cue" / "image.cue"])
+        self.assertEqual(self.job().trash_paths(), [self.root / "a" / "01.wav", self.root / "a" / "02.wav"])

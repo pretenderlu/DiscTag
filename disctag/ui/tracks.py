@@ -1,15 +1,18 @@
 """Importing WAVs, the track table, preview playback and track editing."""
 from __future__ import annotations
 
+import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from ..audio import (
-    clean_track_title,
+    AudioError,
+    audio_info,
     natural_key,
-    wav_duration,
+    source_duration,
 )
+from ..cue import CueError, cue_sources, cue_toc, is_image_cue, parse_cue
 from ..editing import (
     MANUAL_ORIGINS,
     EditError,
@@ -22,10 +25,12 @@ from ..editing import (
     insert_manual_track,
     manual_tracks,
     match_status,
+    source_title,
     track_label,
 )
 from ..i18n import tr
 from ..models import AlbumMetadata
+from ..sources import FRAMES_PER_SECOND, SourceTrack
 from .common import (
     CARD,
     _duration,
@@ -36,20 +41,93 @@ class TracksMixin:
     def _import_wav(self) -> None:
         if self.updating:
             return
-        selected = filedialog.askdirectory(title=tr("选择包含 WAV 音轨的文件夹"))
+        selected = filedialog.askdirectory(title=tr("选择包含 WAV 音轨或 CUE 整轨的文件夹"))
         if not selected:
             return
         directory = Path(selected)
-        files = sorted((path for path in directory.iterdir() if path.is_file() and path.suffix.lower() == ".wav"), key=natural_key)
-        if not files:
-            messagebox.showwarning(tr("没有 WAV 文件"), tr("所选文件夹中没有找到 .wav 文件。"), parent=self.root)
+        try:
+            entries = [path for path in directory.iterdir() if path.is_file()]
+        except OSError as exc:
+            messagebox.showerror(tr("无法读取文件夹"), str(exc), parent=self.root)
             return
+        files = sorted((path for path in entries if path.suffix.lower() == ".wav"), key=natural_key)
+        sheets = []
+        cue_error: CueError | None = None
+        for cue_path in sorted((path for path in entries if path.suffix.lower() == ".cue"), key=natural_key):
+            try:
+                sheet = parse_cue(cue_path)
+            except CueError as exc:
+                cue_error = cue_error or exc
+                continue
+            if is_image_cue(sheet):
+                sheets.append((cue_path, sheet))
+        if len(sheets) > 1:
+            chosen = filedialog.askopenfilename(
+                initialdir=str(directory), filetypes=[("CUE", "*.cue")], title=tr("选择要导入的 CUE 文件"), parent=self.root
+            )
+            if not chosen:
+                return
+            chosen_key = os.path.normcase(os.path.abspath(chosen))
+            matches = [item for item in sheets if os.path.normcase(os.path.abspath(item[0])) == chosen_key]
+            if not matches:
+                try:
+                    sheet = parse_cue(Path(chosen))
+                except CueError as exc:
+                    messagebox.showerror(tr("无法读取 CUE"), str(exc), parent=self.root)
+                    return
+                if not is_image_cue(sheet):
+                    messagebox.showwarning(tr("不是 CUE 整轨"), tr("所选 CUE 每首曲目对应一个文件，请直接导入这些 WAV。"), parent=self.root)
+                    return
+                matches = [(Path(chosen), sheet)]
+            sheets = matches
+        if sheets:
+            self._import_cue(*sheets[0])
+            return
+        if not files:
+            if cue_error is not None:
+                messagebox.showerror(tr("无法读取 CUE"), str(cue_error), parent=self.root)
+            else:
+                messagebox.showwarning(tr("没有 WAV 文件"), tr("所选文件夹中没有找到 .wav 文件或 CUE 整轨。"), parent=self.root)
+            return
+        sources = [SourceTrack(path) for path in files]
+        self._replace_sources(sources, None)
+        self.source_var.set(tr("{0}  ·  {1} 首", directory, len(files)))
+        self._refresh_tracks()
+        self.status_var.set(tr("已导入 {0} 个 WAV 文件", len(files)))
+
+    def _import_cue(self, cue_path: Path, sheet) -> None:
+        sources = cue_sources(sheet, cue_path)
+        toc = None
+        image_paths = {source.key()[0] for source in sources}
+        if len(image_paths) == 1:
+            try:
+                sample_rate, _bits, length = audio_info(sources[0].path)
+            except AudioError:
+                length = 0
+            if length > 0:
+                toc = cue_toc(sources, round(length * FRAMES_PER_SECOND))
+        self._replace_sources(sources, toc)
+        for variable, value in (
+            (self.album_var, sheet.title),
+            (self.artist_var, sheet.performer),
+            (self.date_var, sheet.date),
+            (self.genre_var, sheet.genre),
+        ):
+            if value.strip():
+                variable.set(value.strip())
+        self.source_var.set(tr("{0}  ·  CUE 整轨 · {1} 首", cue_path.name, len(sources)))
+        self._refresh_tracks()
+        self.status_var.set(tr("已导入 CUE 整轨：{0} 首", len(sources)))
+
+    def _replace_sources(self, sources: list[SourceTrack], toc: str | None) -> None:
+        """Swaps in a newly imported set of tracks and resets everything that belonged to the old one."""
         self.preview.stop()
         self._invalidate_metadata_requests()
-        self.sources = files
-        self.source_durations = {path: wav_duration(path) for path in files}
+        self.sources = sources
+        self.cue_toc = toc
+        self.source_durations = {source: source_duration(source) for source in sources}
         if self.result_markers:
-            # 时长标记针对上一批 WAV，换了音轨后不再成立。
+            # 时长标记针对上一批音轨，换了音轨后不再成立。
             self.result_markers = {}
             selection = self.results_tree.selection()
             self._show_results()
@@ -60,16 +138,13 @@ class TracksMixin:
         self.album_region = ""
         self.metadata_dirty = False
         self.cover_data = None
-        self.source_var.set(tr("{0}  ·  {1} 首", directory, len(files)))
         self.album_info_var.set(tr("搜索并选择专辑，或进入手动模式"))
         self._clear_cover()
-        self._refresh_tracks()
-        self.status_var.set(tr("已导入 {0} 个 WAV 文件", len(files)))
 
-    def _source_duration(self, path: Path) -> float | None:
-        if path not in self.source_durations:
-            self.source_durations[path] = wav_duration(path)
-        return self.source_durations[path]
+    def _source_duration(self, source: SourceTrack) -> float | None:
+        if source not in self.source_durations:
+            self.source_durations[source] = source_duration(source)
+        return self.source_durations[source]
 
     def _manual_mode(self) -> None:
         if self.updating:
@@ -117,12 +192,12 @@ class TracksMixin:
             source = self.sources[index] if index < len(self.sources) else None
             track = tracks[index] if index < len(tracks) else None
             number = track_label(track, index)
-            title = track.title if track else (clean_track_title(source) if source else "—")
+            title = track.title if track else (source_title(source) if source else "—")
             if track and track.origin == "manual":
                 title = tr("[手动] {0}", title)
             elif track and track.origin == "auto-manual":
                 title = tr("[待确认] {0}", title)
-            artist = track.artist if track else (self.artist_var.get() if source else "—")
+            artist = track.artist if track else ((source.performer or self.artist_var.get()) if source else "—")
             local_duration = self._source_duration(source) if source else None
             duration = _duration(local_duration * 1000) if local_duration is not None else (_duration(track.duration_ms) if track else "—")
             mismatch = duration_mismatch(local_duration, track)
@@ -165,7 +240,7 @@ class TracksMixin:
         except RuntimeError as exc:
             messagebox.showerror(tr("无法试听"), str(exc), parent=self.root)
 
-    def _playback_changed(self, playing: bool, path: Path) -> None:
+    def _playback_changed(self, playing: bool, path: SourceTrack) -> None:
         for iid in self.tracks_tree.get_children():
             index = int(iid)
             source = self.sources[index] if index < len(self.sources) else None

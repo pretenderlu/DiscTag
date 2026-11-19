@@ -6,7 +6,7 @@
 - `ruff check .`（规则见 `ruff.toml`，只检查真实错误）。
 
 ## 代码结构
-- 无界面逻辑：`audio`（转换与标签）、`matching` / `ranking`（时长对齐与结果排序）、`editing`（曲目编辑）、`jobs`（处理队列）、`models`。
+- 无界面逻辑：`audio`（转换与标签）、`matching` / `ranking`（时长对齐与结果排序）、`editing`（曲目编辑）、`jobs`（处理队列）、`cue`（CUE 解析与切分）、`sources`（SourceTrack：单曲文件或整轨中的一段）、`models`。
 - 曲库客户端：`itunes`、`apple_music_web`、`discogs`、`musicbrainz`，公共的评分与封面下载在 `catalog_common`。
 - 界面：`app.py` 的 `DiscTagApp` 只负责启动、线程调度（`_run_async` / `_post`，后台线程不得直接调用 Tk）、设置与退出；具体功能按职责拆成 `disctag/ui/` 下的 mixin：`layout`、`theme`、`catalog`、`cover`、`tracks`、`processing`、`updates`、`easter_egg`，共享常量与辅助函数在 `ui/common.py`。
 - 界面文字一律以中文原文写成 `tr("中文 {0}", 值)`，英文译文在 `disctag/locales/en.py`。新增或修改文案时同步更新译文；`tests/test_i18n.py` 会检查缺失、多余和占位符不一致。不要在模块级（导入时）调用 `tr()`，需要本地化的常量写成函数（如 `status_label`、`itunes_region_name`、`source_hint`）。语言在 `main.py` 导入界面模块之前确定，切换后需重启。

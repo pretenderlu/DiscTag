@@ -81,16 +81,17 @@ class CatalogMixin:
             self.status_var.set(tr("正在查询 {0} iTunes…", itunes_region_name(region)))
 
         local_ms = [
-            duration * 1000 if (duration := self._source_duration(path)) is not None else None
-            for path in self.sources
+            duration * 1000 if (duration := self._source_duration(source)) is not None else None
+            for source in self.sources
         ]
+        cue_toc = self.cue_toc if self.sources else None
 
         def work():
             if source == SOURCE_DISCOGS:
                 # Discogs 有请求频率限制，不逐个拉取详情核对时长。
                 return self.discogs_client.search_albums(album, artist, token), {}, {}
             if source == SOURCE_MUSICBRAINZ:
-                return self._search_musicbrainz(album, artist, local_ms)
+                return self._search_musicbrainz(album, artist, local_ms, cue_toc)
             results = self.client.search_albums(album, artist, region)
             if not local_ms:
                 return results, {}, {}
@@ -125,11 +126,12 @@ class CatalogMixin:
 
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
 
-    def _search_musicbrainz(self, album: str, artist: str, local_ms: list[float | None]):
-        """TOC lookup from the local WAV durations first, then a text search when an album name is given."""
+    def _search_musicbrainz(self, album: str, artist: str, local_ms: list[float | None], cue_toc: str | None = None):
+        """TOC lookup (the exact CUE TOC, else one built from the local WAV durations) first, then a text search
+        when an album name is given."""
         results: list[AlbumSummary] = []
         fits: dict[tuple, DurationFit] = {}
-        toc = toc_from_durations([duration / 1000 if duration else None for duration in local_ms])
+        toc = cue_toc or toc_from_durations([duration / 1000 if duration else None for duration in local_ms])
         toc_error: Exception | None = None
         if toc:
             try:

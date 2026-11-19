@@ -7,6 +7,7 @@ from disctag.app import DiscTagApp
 from disctag.audio import output_directory
 from disctag.jobs import CANCELLED, DONE, PENDING, JobQueue
 from disctag.models import AlbumMetadata, AlbumSummary, TrackMetadata
+from disctag.sources import SourceTrack
 
 
 class Variable:
@@ -49,8 +50,9 @@ class AppTests(unittest.TestCase):
                      "progress", "preview", "cover_label", "album_entry", "enqueue_button"):
             setattr(a, name, Mock())
         a.results_tree.get_children.return_value = ()
-        a.sources = [self.root / "source.wav"]
+        a.sources = [SourceTrack(self.root / "source.wav")]
         a.source_durations = {}
+        a.cue_toc = None
         a.album = None
         a.album_region = ""
         a.loaded_result_iid = None
@@ -204,7 +206,118 @@ class AppTests(unittest.TestCase):
         done((self.album(), None, None))
         self.assertIsNone(self.app.album)
         self.assertIsNone(self.app.loaded_result_iid)
-        self.assertEqual(self.app.sources, [source])
+        self.assertEqual(self.app.sources, [SourceTrack(source)])
+
+    def write_image_cue(self, folder, name="disc", tracks=3, encoding="utf-8", per_track=False):
+        import wave
+
+        folder.mkdir(parents=True, exist_ok=True)
+        lines = ["REM GENRE Anime", "REM DATE 2003", 'PERFORMER "歌手"', 'TITLE "专辑"']
+        if not per_track:
+            with wave.open(str(folder / f"{name}.wav"), "wb") as audio:
+                audio.setparams((2, 2, 44100, 0, "NONE", "not compressed"))
+                audio.writeframes(bytes(4 * 44100 * tracks))
+            lines.append(f'FILE "{name}.wav" WAVE')
+        for number in range(1, tracks + 1):
+            if per_track:
+                (folder / f"{number:02d}.wav").write_bytes(b"dummy")
+                lines.append(f'FILE "{number:02d}.wav" WAVE')
+            start = 0 if per_track else (number - 1) * 75
+            lines += [f"  TRACK {number:02d} AUDIO", f'    TITLE "曲{number}"',
+                      *(['    PERFORMER "客串"'] if number == 2 else []),
+                      f"    INDEX 01 00:{start // 75:02d}:00"]
+        cue = folder / f"{name}.cue"
+        cue.write_bytes("\n".join(lines).encode(encoding))
+        return cue
+
+    def test_import_folder_with_image_cue(self):
+        a = self.app
+        a.album_var.set("")
+        a.date_var.set("")
+        folder = self.root / "rip"
+        cue = self.write_image_cue(folder, encoding="gbk")
+        (folder / "disc.log").write_text("log")
+        a.result_markers = {("x",): "✓"}
+        a._show_results = Mock()
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)),                 patch("disctag.ui.tracks.filedialog.askopenfilename") as ask:
+            a._import_wav()
+        ask.assert_not_called()
+        self.assertEqual(len(a.sources), 3)
+        self.assertTrue(all(source.is_segment and source.cue == cue for source in a.sources))
+        self.assertEqual([source.title for source in a.sources], ["曲1", "曲2", "曲3"])
+        self.assertEqual([a.source_durations[source] for source in a.sources], [1.0, 1.0, 1.0])
+        self.assertEqual((a.album_var.get(), a.artist_var.get(), a.date_var.get(), a.genre_var.get()),
+                         ("专辑", "歌手", "2003", "Anime"))
+        self.assertEqual(a.cue_toc, "1+3+375+150+225+300")
+        self.assertEqual(a.source_var.get(), "disc.cue  ·  CUE 整轨 · 3 首")
+        self.assertEqual(a.status_var.get(), "已导入 CUE 整轨：3 首")
+        self.assertEqual(a.result_markers, {})
+        self.assertIsNone(a.album)
+
+        a._manual_mode()
+        self.assertEqual([track.title for track in a.album.tracks], ["曲1", "曲2", "曲3"])
+        self.assertEqual([track.artist for track in a.album.tracks], ["歌手", "客串", "歌手"])
+
+    def test_import_folder_with_two_image_cues_asks_which(self):
+        a = self.app
+        folder = self.root / "rip"
+        self.write_image_cue(folder, "disc1", tracks=2)
+        second = self.write_image_cue(folder, "disc2", tracks=3)
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)),                 patch("disctag.ui.tracks.filedialog.askopenfilename", return_value=None) as ask:
+            a._import_wav()
+        ask.assert_called_once()
+        self.assertEqual(ask.call_args.kwargs["initialdir"], str(folder))
+        self.assertEqual(ask.call_args.kwargs["filetypes"], [("CUE", "*.cue")])
+        self.assertEqual(a.sources, [SourceTrack(self.root / "source.wav")])
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)),                 patch("disctag.ui.tracks.filedialog.askopenfilename", return_value=str(second)):
+            a._import_wav()
+        self.assertEqual(len(a.sources), 3)
+        self.assertEqual({source.cue for source in a.sources}, {second})
+
+    def test_per_track_cue_imports_wavs_normally(self):
+        a = self.app
+        a.cue_toc = "stale"
+        folder = self.root / "tracks"
+        self.write_image_cue(folder, per_track=True)
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)),                 patch("disctag.ui.tracks.source_duration", return_value=1.0):
+            a._import_wav()
+        self.assertEqual([source.name for source in a.sources], ["01.wav", "02.wav", "03.wav"])
+        self.assertFalse(any(source.is_segment for source in a.sources))
+        self.assertIsNone(a.cue_toc)
+        self.assertEqual(a.album_var.get(), "Manual Album")
+
+    def test_import_reports_broken_cue_without_wavs(self):
+        a = self.app
+        folder = self.root / "broken"
+        folder.mkdir()
+        (folder / "disc.cue").write_text('FILE "gone.flac" WAVE\n TRACK 01 AUDIO\n  INDEX 01 00:00:00\n')
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)),                 patch("disctag.ui.tracks.messagebox") as box:
+            a._import_wav()
+        box.showerror.assert_called_once()
+        self.assertIn("gone.flac", box.showerror.call_args.args[1])
+        empty = self.root / "empty"
+        empty.mkdir()
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(empty)),                 patch("disctag.ui.tracks.messagebox") as box:
+            a._import_wav()
+        self.assertEqual(box.showwarning.call_args.args[1], "所选文件夹中没有找到 .wav 文件或 CUE 整轨。")
+        self.assertEqual(a.sources, [SourceTrack(self.root / "source.wav")])
+
+    def test_musicbrainz_search_uses_cue_toc(self):
+        a = self.app
+        a.metadata_source_var.set("MusicBrainz")
+        a.album_var.set("")
+        cue = self.root / "disc.cue"
+        a.sources = [SourceTrack(self.root / "disc.wav", 0, 100, 1, cue), SourceTrack(self.root / "disc.wav", 100, None, 2, cue)]
+        a.source_durations = {a.sources[0]: 1.33, a.sources[1]: 3.0}
+        a.cue_toc = "1+2+475+150+250"
+        a.musicbrainz_client = Mock()
+        a.musicbrainz_client.lookup_toc.return_value = []
+        a.musicbrainz_client.search_albums.return_value = []
+        a._search()
+        work, _, _ = self.jobs[-1]
+        a.cue_toc = None  # 工作线程使用的是搜索开始时捕获的 TOC
+        work()
+        a.musicbrainz_client.lookup_toc.assert_called_once_with("1+2+475+150+250", "", "Artist")
 
     def test_clear_invalidates_pending_search(self):
         self.app._search()
@@ -285,7 +398,7 @@ class AppTests(unittest.TestCase):
         for name in ("01.wav", "02.wav"):
             (directory / name).write_bytes(b"dummy")
         with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(directory)), \
-                patch("disctag.ui.tracks.wav_duration", side_effect=lambda path: 1.0) as duration:
+                patch("disctag.ui.tracks.source_duration", side_effect=lambda source: 1.0) as duration:
             a._import_wav()
             self.assertEqual(duration.call_count, 2)
             self.assertEqual(a._source_duration(a.sources[0]), 1.0)
@@ -293,8 +406,8 @@ class AppTests(unittest.TestCase):
 
     def test_source_duration_reads_uncached_path_once(self):
         a = self.app
-        path = self.root / "other.wav"
-        with patch("disctag.ui.tracks.wav_duration", return_value=2.5) as duration:
+        path = SourceTrack(self.root / "other.wav")
+        with patch("disctag.ui.tracks.source_duration", return_value=2.5) as duration:
             self.assertEqual(a._source_duration(path), 2.5)
             self.assertEqual(a._source_duration(path), 2.5)
             duration.assert_called_once_with(path)
@@ -318,7 +431,7 @@ class AppTests(unittest.TestCase):
         a.updating = True
         a.tracks_tree = Mock()
         a.tracks_tree.selection.return_value = ("0",)
-        a.sources = [self.root / "a.wav", self.root / "b.wav"]
+        a.sources = [SourceTrack(self.root / "a.wav"), SourceTrack(self.root / "b.wav")]
         a.album = AlbumMetadata("Album", "Artist", "Artist",
                                 tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
         a._move_source(1)
@@ -326,7 +439,7 @@ class AppTests(unittest.TestCase):
 
     def test_rows_without_local_wav_have_no_preview_icon(self):
         a = self.app
-        a.sources = [self.root / "01.wav"]
+        a.sources = [SourceTrack(self.root / "01.wav")]
         a.source_durations = {a.sources[0]: 1.0}
         a.album = AlbumMetadata("Album", "Artist", "Artist", collection_id=1,
                                 tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
@@ -347,7 +460,7 @@ class AppTests(unittest.TestCase):
 
     def test_insert_dialog_default_position_is_clamped(self):
         a = self.app
-        a.sources = [self.root / f"{index:02d}.wav" for index in range(1, 5)]
+        a.sources = [SourceTrack(self.root / f"{index:02d}.wav") for index in range(1, 5)]
         a.album = AlbumMetadata("Album", "Artist", "Artist", collection_id=1,
                                 tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
         a.album_artist_var.set("Artist")
@@ -527,7 +640,7 @@ class AppTests(unittest.TestCase):
 
     def queue_album(self, folder, title):
         a = self.app
-        a.sources = [self.root / folder / "01.wav"]
+        a.sources = [SourceTrack(self.root / folder / "01.wav")]
         a.album = self.album(title)
         a.album_var.set(title)
         self.assertTrue(a._enqueue_current())
@@ -535,7 +648,7 @@ class AppTests(unittest.TestCase):
     def test_queue_refuses_album_with_conflicting_output(self):
         a = self.app
         self.queue_album("one", "First")
-        a.sources = [self.root / "two" / "01.wav"]
+        a.sources = [SourceTrack(self.root / "two" / "01.wav")]
         with patch("disctag.ui.processing.messagebox") as box:
             self.assertFalse(a._enqueue_current())
         box.showwarning.assert_called_once()
@@ -663,7 +776,7 @@ class AppTests(unittest.TestCase):
 
     def test_search_ranks_by_local_duration_and_caches_album(self):
         a = self.app
-        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.sources = [SourceTrack(self.root / "1.wav"), SourceTrack(self.root / "2.wav")]
         a.source_durations = {a.sources[0]: 200.0, a.sources[1]: 180.0}
         a._post = lambda callback: None
         wrong = AlbumSummary(1, "Album", "Artist", track_count=2, country="US")
@@ -695,7 +808,7 @@ class AppTests(unittest.TestCase):
         a = self.app
         a.metadata_source_var.set("MusicBrainz")
         a.album_var.set("")
-        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.sources = [SourceTrack(self.root / "1.wav"), SourceTrack(self.root / "2.wav")]
         a.source_durations = {a.sources[0]: 2.0, a.sources[1]: 3.0}
         a.musicbrainz_client = Mock()
         a.musicbrainz_client.lookup_toc.return_value = [AlbumSummary("rel", "Album", "A", track_count=2, country="JP",
@@ -717,7 +830,7 @@ class AppTests(unittest.TestCase):
         a = self.app
         a.metadata_source_var.set("MusicBrainz")
         a.album_var.set("")
-        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.sources = [SourceTrack(self.root / "1.wav"), SourceTrack(self.root / "2.wav")]
         a.source_durations = {a.sources[0]: 2.0, a.sources[1]: 3.0}
         a.musicbrainz_client = Mock()
         a.musicbrainz_client.lookup_toc.return_value = [
