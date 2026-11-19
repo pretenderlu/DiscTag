@@ -95,7 +95,8 @@ fi
     --enable-ffmpeg \
     --enable-libmp3lame \
     --enable-protocol=file,pipe \
-    --enable-demuxer=wav,flac,ape \n    --enable-parser=flac \
+    --enable-demuxer=wav,flac,ape \
+    --enable-parser=flac \
     --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8,flac,ape \
     --enable-encoder=flac,libmp3lame,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
     --enable-muxer=flac,mp3,wav \
@@ -131,11 +132,10 @@ echo "=== Component self-check ==="
 require_components() {
     local kind="$1"; shift
     local listing
-    listing=$("$OUT_DIR/$EXE" -hide_banner "-$kind" 2>/dev/null | tr -d '')
+    listing=$("$OUT_DIR/$EXE" -hide_banner "-$kind" 2>/dev/null | tr -d '\r')
     local name missing=0
     for name in "$@"; do
-        if ! printf '%s
-' "$listing" | awk -v n="$name" '$2 == n { found = 1 } END { exit !found }'; then
+        if ! printf '%s\n' "$listing" | awk -v n="$name" '$2 == n { found = 1 } END { exit !found }'; then
             echo "ERROR: $kind is missing '$name'" >&2
             missing=1
         fi
