@@ -30,6 +30,14 @@ class EasterEggMixin:
             self._show_easter_egg()
 
     def _show_easter_egg(self) -> None:
+        width = min(self._px(1100), int(self.root.winfo_screenwidth() * 0.85))
+        height = round(width * 647 / 1685)
+        # 先读图片：资源缺失或损坏时直接跳过彩蛋，避免留下一个空白窗口。
+        try:
+            with Image.open(_resource_path("assets/easter-egg-preview.png")) as source:
+                image = source.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
+        except (OSError, ValueError):
+            return
         dialog = tk.Toplevel(self.root)
         self.easter_egg_dialog = dialog
         dialog.title(tr("DiscTag · 水友驱动开发"))
@@ -38,10 +46,6 @@ class EasterEggMixin:
         dialog.transient(self.root)
         if self.icon_image:
             dialog.iconphoto(False, self.icon_image)
-        width = min(self._px(1100), int(self.root.winfo_screenwidth() * 0.85))
-        height = round(width * 647 / 1685)
-        image = Image.open(_resource_path("assets/easter-egg-preview.png")).convert("RGB")
-        image = image.resize((width, height), Image.Resampling.LANCZOS)
         self.easter_egg_image = ImageTk.PhotoImage(image)
         canvas = tk.Canvas(dialog, width=width, height=height, highlightthickness=0, bg="#F5F0E7")
         canvas.pack()

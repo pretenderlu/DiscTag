@@ -72,3 +72,5 @@ class ConversionResult:
     trash_failures: list[ConversionFailure] = field(default_factory=list)
     # 开启了“移到回收站”，但专辑未全部成功，因此保留了全部源 WAV。
     trash_skipped: bool = False
+    # cover.jpg 写入失败的原因；音轨不受影响，因此不计入 failures。
+    cover_error: str = ""

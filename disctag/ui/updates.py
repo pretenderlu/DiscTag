@@ -45,13 +45,26 @@ class UpdateMixin:
     def _start_update_download(self) -> None:
         if self.updating:
             return
-        if self.converting:
-            messagebox.showwarning(tr("正在处理专辑"), tr("请等待当前专辑处理完成后再更新。"), parent=self.root)
+        if not self._can_update_now():
             return
         info = self.latest_update
         if not info:
             return
         self._show_update_dialog(info)
+
+    def _can_update_now(self) -> bool:
+        """安装更新会关闭程序，因此正在处理或队列中还有专辑时拒绝更新。"""
+        if self.converting:
+            messagebox.showwarning(tr("正在处理专辑"), tr("请等待当前专辑处理完成后再更新。"), parent=self.root)
+            return False
+        if self.job_queue.pending_count() > 0:
+            messagebox.showwarning(
+                tr("无法更新"),
+                tr("队列中还有待处理的专辑，请处理完成或清空队列后再更新。"),
+                parent=self.root,
+            )
+            return False
+        return True
 
     def _show_update_dialog(self, info) -> None:
         if self.update_dialog and self.update_dialog.winfo_exists():
@@ -124,13 +137,14 @@ class UpdateMixin:
         self._close_update_dialog()
         if self.updating:
             return
-        if self.converting:
-            messagebox.showwarning(tr("正在处理专辑"), tr("请等待当前专辑处理完成后再更新。"), parent=self.root)
+        if not self._can_update_now():
             return
         self.updating = True
         self._invalidate_metadata_requests()
         self.convert_button.configure(state="disabled")
         self.clear_button.configure(state="disabled")
+        self.enqueue_button.configure(state="disabled")
+        self._refresh_queue_view()
         self.progress_var.set(0)
         self.progress.configure(maximum=info.size or 1)
         destination = Path(tempfile.gettempdir()) / "DiscTag" / "updates" / info.installer_name
@@ -155,6 +169,7 @@ class UpdateMixin:
         self.updating = False
         self.status_var.set(tr("更新包校验完成，正在安装…"))
         self._save_settings()
+        self.preview.stop()
         try:
             subprocess.Popen(
                 [str(installer), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"],
@@ -170,6 +185,8 @@ class UpdateMixin:
         self.convert_button.configure(state="normal")
         self.search_button.configure(state="normal")
         self.clear_button.configure(state="normal")
+        self.enqueue_button.configure(state="normal")
+        self._refresh_queue_view()
         self.status_var.set(tr("自动更新失败：{0}", error))
         choice = messagebox.askyesnocancel(
             tr("自动更新失败"),

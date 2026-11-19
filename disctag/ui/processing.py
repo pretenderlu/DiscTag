@@ -229,22 +229,31 @@ class ProcessingMixin:
             messagebox.showinfo(
                 tr("已取消处理"),
                 tr("已完成 {0} 首，其余曲目未处理。\n\n{1}", len(result.converted_files), result.output_directory)
-                + self._trash_note(job),
+                + self._cover_note(job) + self._trash_note(job),
                 parent=self.root,
             )
         elif result.failures:
             self.progress_var.set(len(job.sources))
             details = "\n".join(tr("{0}：{1}", failure.source.name, failure.message) for failure in result.failures[:6])
             self.status_var.set(tr("完成 {0} 首，失败 {1} 首", len(result.converted_files), len(result.failures)))
-            messagebox.showwarning(tr("部分曲目处理失败"), tr("成功 {0} 首，失败 {1} 首。\n\n{2}", len(result.converted_files), len(result.failures), details) + self._trash_note(job), parent=self.root)
+            messagebox.showwarning(tr("部分曲目处理失败"), tr("成功 {0} 首，失败 {1} 首。\n\n{2}", len(result.converted_files), len(result.failures), details) + self._cover_note(job) + self._trash_note(job), parent=self.root)
         else:
             self.progress_var.set(len(job.sources))
             self.status_var.set(tr("处理完成 · {0}", result.output_directory))
-            text = tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory) + self._trash_note(job)
+            text = tr("已生成 {0} 首音乐，标签与封面处理完成。\n\n{1}", len(result.converted_files), result.output_directory)
+            text += self._cover_note(job) + self._trash_note(job)
             if result.trash_failures:
                 messagebox.showwarning(tr("部分源 WAV 未能移到{0}", trash_name()), text, parent=self.root)
+            elif result.cover_error:
+                messagebox.showwarning(tr("处理完成"), text, parent=self.root)
             else:
                 messagebox.showinfo(tr("处理完成"), text, parent=self.root)
+
+    def _cover_note(self, job: ConversionJob) -> str:
+        result = job.result
+        if result is None or not result.cover_error:
+            return ""
+        return "\n\n" + tr("cover.jpg 写入失败：{0}", result.cover_error)
 
     def _trash_note(self, job: ConversionJob) -> str:
         result = job.result
@@ -278,11 +287,13 @@ class ProcessingMixin:
         if cancelled:
             summary += tr("，已取消（队列中还剩 {0} 张）", remaining)
         self.status_var.set(tr("队列处理结束 · {0}", summary))
-        details = "\n".join(tr("《{0}》：{1} · {2}", job.title, job.status_label, job.message) for job in problems[:8])
+        # 只有 cover.jpg 写入失败的专辑仍算完成，但同样列出说明，提醒用户补存封面。
+        noted = [job for job in jobs if job in problems or (job.result is not None and job.result.cover_error)]
+        details = "\n".join(tr("《{0}》：{1} · {2}", job.title, job.status_label, job.message) for job in noted[:8])
         text = tr("本次处理了 {0} 张专辑：{1}。", len(jobs), summary)
         if details:
             text += tr("\n\n{0}\n\n可在“队列”中查看并重试。", details)
-        if problems:
+        if noted:
             messagebox.showwarning(tr("队列处理结束"), text, parent=self.root)
         else:
             messagebox.showinfo(tr("队列处理结束"), text, parent=self.root)

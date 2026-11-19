@@ -53,7 +53,10 @@ class AudioTests(unittest.TestCase):
     def test_alias_of_source_is_rejected(self):
         target = output_path(output_directory(self.root, self.album), self.album.tracks[0], "wav")
         target.parent.mkdir(parents=True)
-        os.link(self.source, target)
+        try:
+            os.link(self.source, target)
+        except OSError:
+            self.skipTest("hard links not supported")
         original = self.source.read_bytes()
         with self.assertRaises(AudioError):
             convert_album([self.source], self.album, self.root, "wav")
@@ -177,6 +180,22 @@ class AudioTests(unittest.TestCase):
         with patch("disctag.audio._tag_wave", side_effect=OSError("tag failed")):
             result = convert_album([self.source], self.album, self.root, "wav", cover_data=self.cover())
         self.assertEqual(len(result.failures), 1)
+        self.assertFalse((result.output_directory / "cover.jpg").exists())
+
+    def test_cover_write_failure_keeps_album_result(self):
+        real_replace = os.replace
+
+        def replace(src, dst):
+            if Path(dst).name == "cover.jpg":
+                raise PermissionError("cover locked")
+            return real_replace(src, dst)
+
+        with patch("disctag.audio.os.replace", side_effect=replace):
+            result = convert_album([self.source], self.album, self.root, "wav", cover_data=self.cover())
+        self.assertEqual(result.failures, [])
+        self.assertEqual(len(result.converted_files), 1)
+        self.assertTrue(result.converted_files[0].is_file())
+        self.assertIn("cover locked", result.cover_error)
         self.assertFalse((result.output_directory / "cover.jpg").exists())
 
     def test_tag_failure_preserves_existing_output(self):

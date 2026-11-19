@@ -293,6 +293,8 @@ class CatalogMixin:
     def _discogs_token_ready(self, token: str) -> None:
         if token and not self.discogs_token_var.get():
             self.discogs_token_var.set(token)
+        # 记录钥匙串中已有的值，保存设置时内容未变就不再访问钥匙串。
+        self._saved_discogs_token = token.strip()
         self.discogs_token_loaded = True
 
     def _read_discogs_token(self) -> str:
@@ -307,12 +309,19 @@ class CatalogMixin:
         if not getattr(self, "discogs_token_loaded", False):
             return
         import keyring
+        import keyring.errors
 
         token = self.discogs_token_var.get().strip()
+        if token == getattr(self, "_saved_discogs_token", None):
+            return
         try:
             if token:
                 keyring.set_password("DiscTag", "discogs_token", token)
             else:
-                keyring.delete_password("DiscTag", "discogs_token")
+                try:
+                    keyring.delete_password("DiscTag", "discogs_token")
+                except keyring.errors.PasswordDeleteError:
+                    pass  # 钥匙串中本来就没有，同样视为已清除。
         except Exception:
-            pass
+            return
+        self._saved_discogs_token = token

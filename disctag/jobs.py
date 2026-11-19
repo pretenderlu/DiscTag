@@ -74,6 +74,8 @@ class ConversionJob:
         else:
             self.status = DONE
             self.message = tr("{0} 首", converted)
+        if result.cover_error:
+            self.message += tr("；cover.jpg 写入失败：{0}", result.cover_error)
         if result.trashed_sources:
             self.message += tr("；源 WAV 已移到{0}", trash_name())
         if result.trash_failures:

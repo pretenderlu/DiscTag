@@ -46,7 +46,7 @@ class AppTests(unittest.TestCase):
         a.cover_embed_var = Variable("同 cover.jpg")
         for name in ("root", "search_button", "region_label", "region_combo", "token_header",
                      "discogs_token_entry", "results_tree", "convert_button", "clear_button",
-                     "progress", "preview", "cover_label", "album_entry"):
+                     "progress", "preview", "cover_label", "album_entry", "enqueue_button"):
             setattr(a, name, Mock())
         a.results_tree.get_children.return_value = ()
         a.sources = [self.root / "source.wav"]
@@ -266,6 +266,62 @@ class AppTests(unittest.TestCase):
         a._move_source(1)
         self.assertEqual([path.name for path in a.sources], ["a.wav", "b.wav"])
 
+    def test_rows_without_local_wav_have_no_preview_icon(self):
+        a = self.app
+        a.sources = [self.root / "01.wav"]
+        a.source_durations = {a.sources[0]: 1.0}
+        a.album = AlbumMetadata("Album", "Artist", "Artist", collection_id=1,
+                                tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
+        a.preview.playing = False
+        a.tracks_tree = Mock()
+        a.tracks_tree.get_children.return_value = ()
+        for name in ("insert_button", "align_button", "up_button"):
+            setattr(a, name, Mock())
+        a.match_var = Variable()
+        DiscTagApp._refresh_tracks(a)
+        icons = [call.kwargs["values"][0] for call in a.tracks_tree.insert.call_args_list]
+        self.assertEqual(icons, ["▶", ""])
+        a.tracks_tree.identify_region.return_value = "cell"
+        a.tracks_tree.identify_column.return_value = "#1"
+        a.tracks_tree.identify_row.return_value = "1"
+        a._track_clicked(Mock(x=5, y=5))
+        a.preview.toggle.assert_not_called()
+
+    def test_insert_dialog_default_position_is_clamped(self):
+        a = self.app
+        a.sources = [self.root / f"{index:02d}.wav" for index in range(1, 5)]
+        a.album = AlbumMetadata("Album", "Artist", "Artist", collection_id=1,
+                                tracks=[TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)])
+        a.album_artist_var.set("Artist")
+        a.tracks_tree = Mock()
+        a.tracks_tree.selection.return_value = ("3",)
+        a.root.winfo_rootx.return_value = a.root.winfo_rooty.return_value = 0
+        a.root.winfo_width.return_value = a.root.winfo_height.return_value = 800
+        toplevel = Mock()
+        toplevel.winfo_width.return_value = toplevel.winfo_height.return_value = 200
+        with (
+            patch("disctag.ui.tracks.tk.Toplevel", return_value=toplevel),
+            patch("disctag.ui.tracks.tk.IntVar") as int_var,
+            patch("disctag.ui.tracks.tk.StringVar"),
+            patch("disctag.ui.tracks.ttk"),
+        ):
+            a._insert_missing_track()
+        int_var.assert_called_once_with(value=3)
+
+    def test_easter_egg_skipped_when_image_missing(self):
+        a = self.app
+        a.easter_egg_dialog = None
+        a.fireworks = None
+        a.icon_image = None
+        a.root.winfo_screenwidth.return_value = 1920
+        with (
+            patch("disctag.ui.easter_egg._resource_path", return_value=self.root / "missing.png"),
+            patch("disctag.ui.easter_egg.tk.Toplevel") as toplevel,
+        ):
+            a._show_easter_egg()
+        toplevel.assert_not_called()
+        self.assertIsNone(a.easter_egg_dialog)
+
     def test_convert_confirms_cover_overwrite(self):
         a = self.app
         a.album = self.album("Manual Album")
@@ -301,6 +357,46 @@ class AppTests(unittest.TestCase):
             DiscTagApp._save_discogs_token(a)
             set_password.assert_called_once_with("DiscTag", "discogs_token", "tok")
             delete_password.assert_not_called()
+
+    def test_save_token_skips_keyring_when_unchanged(self):
+        a = self.app
+        a.discogs_token_var.set("")
+        a.discogs_token_loaded = False
+        DiscTagApp._discogs_token_ready(a, "")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            DiscTagApp._save_discogs_token(a)
+        delete_password.assert_not_called()
+        set_password.assert_not_called()
+        a.discogs_token_var.set(" new ")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            DiscTagApp._save_discogs_token(a)
+        set_password.assert_called_once_with("DiscTag", "discogs_token", "new")
+        delete_password.assert_not_called()
+
+    def test_save_token_deletes_stored_token_once(self):
+        a = self.app
+        a.discogs_token_var.set("")
+        a.discogs_token_loaded = False
+        DiscTagApp._discogs_token_ready(a, "stored")
+        a.discogs_token_var.set("")
+        with patch("keyring.set_password") as set_password, patch("keyring.delete_password") as delete_password:
+            DiscTagApp._save_discogs_token(a)
+            DiscTagApp._save_discogs_token(a)
+        delete_password.assert_called_once_with("DiscTag", "discogs_token")
+        set_password.assert_not_called()
+
+    def test_save_token_retries_after_keyring_error(self):
+        a = self.app
+        a.discogs_token_loaded = True
+        a._saved_discogs_token = ""
+        a.discogs_token_var.set("tok")
+        with patch("keyring.set_password", side_effect=[RuntimeError("locked"), None]) as set_password:
+            DiscTagApp._save_discogs_token(a)
+            DiscTagApp._save_discogs_token(a)
+            DiscTagApp._save_discogs_token(a)
+        self.assertEqual(set_password.call_count, 2)
 
     def test_discogs_token_ready(self):
         a = self.app
@@ -398,6 +494,43 @@ class AppTests(unittest.TestCase):
             self.assertIn("2 张", box.showinfo.call_args.args[1])
         self.assertEqual([job.status for job in a.job_queue.jobs], [DONE, DONE])
         self.assertFalse(a.converting)
+
+    def test_single_job_reports_cover_write_failure(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a._save_settings = Mock()
+        self.queue_album("one", "First")
+        a.sources, a.album = [], None
+        a._convert()
+        with patch("disctag.ui.processing.messagebox") as box:
+            _, done, _ = self.jobs[-1]
+            done(ConversionResult(self.root, converted_files=[self.root / "x.flac"], cover_error="disk full"))
+        box.showinfo.assert_not_called()
+        box.showwarning.assert_called_once()
+        self.assertIn("cover.jpg 写入失败：disk full", box.showwarning.call_args.args[1])
+        self.assertEqual(a.job_queue.jobs[0].status, DONE)
+
+    def test_queue_report_lists_cover_write_failure(self):
+        from disctag.models import ConversionResult
+
+        a = self.app
+        a._save_settings = Mock()
+        self.queue_album("one", "First")
+        self.queue_album("two", "Second")
+        a.sources, a.album = [], None
+        a._convert()
+        with patch("disctag.ui.processing.messagebox") as box:
+            _, done, _ = self.jobs[-1]
+            done(ConversionResult(self.root, converted_files=[self.root / "x.flac"], cover_error="disk full"))
+            _, done, _ = self.jobs[-1]
+            done(ConversionResult(self.root, converted_files=[self.root / "y.flac"]))
+        box.showwarning.assert_called_once()
+        text = box.showwarning.call_args.args[1]
+        self.assertIn("《First》", text)
+        self.assertIn("cover.jpg 写入失败：disk full", text)
+        self.assertNotIn("《Second》", text)
+        self.assertEqual([job.status for job in a.job_queue.jobs], [DONE, DONE])
 
     def test_cancel_keeps_rest_of_queue_pending(self):
         from disctag.models import ConversionResult
@@ -642,6 +775,67 @@ class AppTests(unittest.TestCase):
         warning.assert_called_once()
         a._show_update_dialog.assert_not_called()
         self.assertFalse(self.jobs)
+
+    def test_start_update_download_blocked_by_pending_queue(self):
+        a = self.app
+        self.queue_album("one", "Queued")
+        a.latest_update = self.update_info()
+        a._show_update_dialog = Mock()
+        with patch("disctag.ui.updates.messagebox.showwarning") as warning:
+            a._start_update_download()
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.args[0], "无法更新")
+        a._show_update_dialog.assert_not_called()
+        self.assertFalse(self.jobs)
+
+    def test_begin_update_download_blocked_by_pending_queue(self):
+        a = self.app
+        self.queue_album("one", "Queued")
+        with patch("disctag.ui.updates.messagebox.showwarning") as warning:
+            a._begin_update_download(self.update_info())
+        warning.assert_called_once()
+        self.assertFalse(a.updating)
+        self.assertFalse(self.jobs)
+
+    def test_begin_update_download_disables_queue_actions(self):
+        a = self.app
+        a.queue_window = Mock()
+        a._begin_update_download(self.update_info())
+        a.enqueue_button.configure.assert_called_with(state="disabled")
+        a.queue_window.refresh.assert_called()
+        a.queue_window.refresh.reset_mock()
+        with patch("disctag.ui.updates.messagebox.askyesnocancel", return_value=None):
+            a._update_failed(RuntimeError("boom"))
+        a.enqueue_button.configure.assert_called_with(state="normal")
+        a.queue_window.refresh.assert_called()
+
+    def test_queue_window_start_disabled_while_updating(self):
+        from disctag.ui.queue_window import QueueWindow
+
+        a = self.app
+        self.queue_album("one", "Queued")
+        window = QueueWindow.__new__(QueueWindow)
+        window.app = a
+        window.tree = Mock()
+        window.tree.selection.return_value = ()
+        for name in ("remove_button", "retry_button", "clear_button", "start_button"):
+            setattr(window, name, Mock())
+        a.updating = True
+        window._update_buttons()
+        window.start_button.configure.assert_called_with(state="disabled")
+        a.updating = False
+        window._update_buttons()
+        window.start_button.configure.assert_called_with(state="normal")
+
+    def test_install_update_stops_preview(self):
+        a = self.app
+        a._save_settings = Mock()
+        order = []
+        a.preview.stop.side_effect = lambda: order.append("stop")
+        a.root.destroy.side_effect = lambda: order.append("destroy")
+        with patch("disctag.ui.updates.subprocess.Popen", side_effect=lambda *args, **kwargs: order.append("popen")):
+            a._install_update(self.root / "DiscTagSetup.exe")
+        self.assertEqual(order, ["stop", "popen", "destroy"])
 
     def test_update_dialog_yes_starts_download(self):
         a = self.app

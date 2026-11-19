@@ -64,6 +64,13 @@ class JobQueueTests(unittest.TestCase):
         job.fail(RuntimeError("boom"))
         self.assertEqual((job.status, job.message, job.status_label), (FAILED, "boom", "失败"))
 
+    def test_cover_error_is_a_warning_not_a_failure(self):
+        job = self.job()
+        job.finish(ConversionResult(self.root, converted_files=[self.root / "1.flac", self.root / "2.flac"],
+                                    cover_error="Access denied"))
+        self.assertEqual(job.status, DONE)
+        self.assertEqual(job.message, "2 首；cover.jpg 写入失败：Access denied")
+
     def test_labels(self):
         self.assertEqual(self.job(output_format="mp3").format_label, "MP3 V0")
         self.assertEqual(self.job().format_label, "FLAC")

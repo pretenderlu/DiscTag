@@ -9,6 +9,20 @@ from .audio import wav_duration
 from .i18n import tr
 
 
+# CD-DA：44.1 kHz、16 bit、双声道，每秒 176400 字节；WAV 头约 44 字节。
+CD_BYTES_PER_SECOND = 176400
+WAV_HEADER_BYTES = 44
+
+
+def _estimated_duration(path: Path) -> float:
+    """Fallback length when the WAV header can't be parsed, so the Windows poll still ends."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return 0.0
+    return max(size - WAV_HEADER_BYTES, 0) / CD_BYTES_PER_SECOND
+
+
 class AudioPreview:
     def __init__(self, root, on_change):
         self.root = root
@@ -49,7 +63,7 @@ class AudioPreview:
             raise RuntimeError(tr("无法播放 {0}：{1}", path.name, exc)) from exc
         self.path = path
         self.started = time.monotonic()
-        self.duration = wav_duration(path) or 0.0
+        self.duration = wav_duration(path) or _estimated_duration(path)
         self.on_change(True, path)
         self._poll_id = self.root.after(250, self._poll)
 

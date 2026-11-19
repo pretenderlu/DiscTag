@@ -15,6 +15,7 @@ from ..editing import (
     EditError,
     album_info_text,
     can_insert,
+    default_insert_position,
     delete_manual_track,
     duration_mismatch,
     fill_missing_by_duration,
@@ -131,7 +132,8 @@ class TracksMixin:
                 tag = "duration-warning" if mismatch else ""
             is_playing = bool(source and self.preview.playing and self.preview.path == source)
             tags = (["playing"] if is_playing else []) + ([tag] if tag else [])
-            preview_icon = "■" if is_playing else "▶"
+            # 没有本地 WAV 的行（在线曲目多于本地音轨）无法试听，不显示播放图标。
+            preview_icon = ("■" if is_playing else "▶") if source else ""
             self.tracks_tree.insert("", "end", iid=str(index), values=(preview_icon, number, source.name if source else "—", title, artist, duration), tags=tags)
         if can_insert(self.album, len(self.sources)):
             self.insert_button.pack(side="left", padx=2, before=self.up_button)
@@ -167,7 +169,7 @@ class TracksMixin:
             source = self.sources[index] if index < len(self.sources) else None
             is_playing = bool(playing and source == path)
             values = list(self.tracks_tree.item(iid, "values"))
-            values[0] = "■" if is_playing else "▶"
+            values[0] = ("■" if is_playing else "▶") if source else ""
             tags = [tag for tag in self.tracks_tree.item(iid, "tags") if tag != "playing"]
             if is_playing:
                 tags.insert(0, "playing")
@@ -222,7 +224,8 @@ class TracksMixin:
             messagebox.showinfo(tr("无需插入"), tr("当前没有可由手动缺曲补齐的数量差异。"), parent=self.root)
             return
         selection = self.tracks_tree.selection()
-        default_position = int(selection[0]) + 1 if selection else len(self.album.tracks) + 1
+        # 选中的可能是本地多出的行（行号超出在线曲目数），需夹到可插入的范围内。
+        default_position = default_insert_position(int(selection[0]) if selection else None, len(self.album.tracks))
         dialog = tk.Toplevel(self.root)
         dialog.title(tr("插入缺失曲目"))
         dialog.configure(bg=CARD)
@@ -319,7 +322,7 @@ class TracksMixin:
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        frame = ttk.Frame(dialog, style="Card.TFrame", padding=20)
+        frame = ttk.Frame(dialog, style="Card.TFrame", padding=self._px(20))
         frame.pack(fill="both", expand=True)
         title_var = tk.StringVar(value=track.title)
         artist_var = tk.StringVar(value=track.artist)

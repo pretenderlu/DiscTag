@@ -243,9 +243,9 @@ class LayoutMixin:
         # 按实际宽度换行，窗口变窄时文字折行而不是被截断。
         track_hint.bind("<Configure>", lambda event: track_hint.configure(wraplength=max(1, event.width)))
 
-        output_panel = RoundedPanel(body, padding=14, radius=self._px(10), fit_height=True)
+        output_panel = RoundedPanel(body, padding=self._px(14), radius=self._px(10), fit_height=True)
         output_card = output_panel.content
-        output_panel.pack(side="bottom", fill="x", pady=(12, 8))
+        output_panel.pack(side="bottom", fill="x", pady=(self._px(12), self._px(8)))
         output_row = ttk.Frame(output_card, style="Card.TFrame")
         output_row.pack(fill="x")
         ttk.Label(output_row, text=tr("输出目录"), style="Card.TLabel").pack(side="left", padx=(0, 8))

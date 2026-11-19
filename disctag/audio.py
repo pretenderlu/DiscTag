@@ -169,8 +169,12 @@ def convert_album(
 
         if cover_data and result.converted_files:
             temporary_cover = Path(staging) / "cover.jpg"
-            temporary_cover.write_bytes(cover_data)
-            os.replace(temporary_cover, directory / "cover.jpg")
+            try:
+                temporary_cover.write_bytes(cover_data)
+                os.replace(temporary_cover, directory / "cover.jpg")
+            except OSError as exc:
+                # 音轨已全部写好，封面失败只作为警告报告，不计入失败曲目。
+                result.cover_error = str(exc)
     return result
 
 

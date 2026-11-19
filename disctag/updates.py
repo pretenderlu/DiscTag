@@ -18,6 +18,10 @@ class UpdateError(RuntimeError):
     pass
 
 
+class _IncompleteDownload(Exception):
+    """The stream ended before the expected size; usually a dropped connection, so worth retrying."""
+
+
 @dataclass(frozen=True)
 class UpdateInfo:
     version: str
@@ -91,7 +95,7 @@ def _is_retryable(error: Exception) -> bool:
     if isinstance(error, requests.HTTPError):
         status = error.response.status_code if error.response is not None else 0
         return status == 429 or status >= 500
-    return isinstance(error, (requests.ConnectionError, requests.Timeout))
+    return isinstance(error, (requests.ConnectionError, requests.Timeout, _IncompleteDownload))
 
 
 def _fetch_stream(
@@ -123,7 +127,7 @@ def _fetch_stream(
                 if progress:
                     progress(downloaded, total)
     if info.size and downloaded != info.size:
-        raise UpdateError(tr("更新包下载不完整，请重试。"))
+        raise _IncompleteDownload(f"{downloaded}/{info.size}")
     if digest.hexdigest() != info.sha256.lower():
         raise UpdateError(tr("更新包校验失败，已阻止安装。"))
 
@@ -159,4 +163,6 @@ def download_update(
             last_error = exc
         finally:
             temporary.unlink(missing_ok=True)
+    if isinstance(last_error, _IncompleteDownload):
+        raise UpdateError(tr("更新包下载不完整，请重试。")) from last_error
     raise UpdateError(tr("下载失败：{0}", last_error))

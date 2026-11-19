@@ -36,6 +36,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run regression tests
+        env:
+          DISCTAG_FFMPEG: ${{ github.workspace }}/vendor/ffmpeg
         run: python -m unittest discover -s tests -v
 
       - name: Build DiscTag.app

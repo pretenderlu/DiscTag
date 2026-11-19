@@ -114,6 +114,8 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.metadata_source_var = tk.StringVar(value=self.settings.get("metadata_source", "iTunes / Apple Music"))
         self.discogs_token_var = tk.StringVar()
         self.discogs_token_loaded = False
+        # 已知保存在钥匙串中的 Discogs token；None 表示尚未读取。
+        self._saved_discogs_token: str | None = None
         saved_cover_size = self.settings.get("cover_size", 1200)
         if saved_cover_size not in COVER_SIZES:
             saved_cover_size = 1200

@@ -106,10 +106,15 @@ class UpdateTests(unittest.TestCase):
         content = b"short"
         info = UpdateInfo("v9.9.9", "https://x", download_url="https://dl",
                           size=100, sha256=hashlib.sha256(content).hexdigest())
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(UpdateError):
-                self.download(info, Mock(return_value=self.stream([content])), directory)
+        get = Mock(side_effect=lambda *args, **kwargs: self.stream([content]))
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("disctag.updates.time.sleep"):
+            with self.assertRaises(UpdateError) as context:
+                self.download(info, get, directory)
             self.assertFalse((Path(directory) / "setup.exe").exists())
+            self.assertFalse((Path(directory) / "setup.download").exists())
+        self.assertIn("不完整", str(context.exception))
+        self.assertEqual(get.call_count, 3)
 
     def test_download_requires_sha256(self):
         info = UpdateInfo("v9.9.9", "https://x", download_url="https://dl", sha256="")
@@ -167,15 +172,32 @@ class UpdateTests(unittest.TestCase):
         get.assert_called_once()
         sleep.assert_not_called()
 
-    def test_download_does_not_retry_checksum_mismatch(self):
-        content = b"short"
+    def test_download_retries_truncated_stream_and_falls_back(self):
+        content = b"installer-bytes"
         info = UpdateInfo("v9.9.9", "https://x", download_url="https://dl",
-                          size=100, sha256=hashlib.sha256(content).hexdigest())
+                          alternate_url="https://api.github.com/assets/1",
+                          size=len(content), sha256=hashlib.sha256(content).hexdigest())
+        get = Mock(side_effect=[self.stream([content[:4]]), self.stream([content[:8]]), self.stream([content])])
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("disctag.updates.time.sleep") as sleep:
+            result = self.download(info, get, directory)
+            self.assertEqual(result.read_bytes(), content)
+        self.assertEqual(get.call_count, 3)
+        self.assertEqual(get.call_args_list[2].args[0], "https://api.github.com/assets/1")
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_download_does_not_retry_checksum_mismatch(self):
+        content = b"installer-bytes"
+        info = UpdateInfo("v9.9.9", "https://x", download_url="https://dl",
+                          alternate_url="https://api.github.com/assets/1",
+                          size=len(content), sha256=hashlib.sha256(b"something else").hexdigest())
         get = Mock(return_value=self.stream([content]))
         with tempfile.TemporaryDirectory() as directory, \
                 patch("disctag.updates.time.sleep") as sleep:
-            with self.assertRaises(UpdateError):
+            with self.assertRaises(UpdateError) as context:
                 self.download(info, get, directory)
+            self.assertFalse((Path(directory) / "setup.download").exists())
+        self.assertIn("校验失败", str(context.exception))
         get.assert_called_once()
         sleep.assert_not_called()
 

@@ -27,7 +27,8 @@ def can_insert(album: AlbumMetadata | None, source_count: int) -> bool:
 
 
 def fill_missing_by_duration(album: AlbumMetadata, durations_ms: list[float | None], artist: str) -> list[int]:
-    if any(track.disc_count > 1 or track.disc_number != 1 for track in album.tracks):
+    # 只拒绝跨多张光盘的曲目表；多碟套装中的单张光盘（如 MusicBrainz 识别出的第 2 碟）可以按时长对齐。
+    if len({track.disc_number for track in album.tracks}) > 1:
         raise EditError(tr("多碟专辑请按实体 CD 曲目表手动插入缺曲"))
     aligned = align_tracks_by_duration(durations_ms, album.tracks)
     if aligned is None:
@@ -55,20 +56,32 @@ def fill_missing_by_duration(album: AlbumMetadata, durations_ms: list[float | No
     return missing_positions
 
 
+def default_insert_position(selected_index: int | None, track_count: int) -> int:
+    """Position offered by the insert dialog: after the selected row, clamped to the valid range."""
+    if selected_index is None:
+        return track_count + 1
+    return max(1, min(selected_index + 1, track_count + 1))
+
+
 def insert_manual_track(album: AlbumMetadata, source_count: int, position: int, title: str, artist: str) -> bool:
     if not title.strip() or source_count <= len(album.tracks):
         return False
     if not 1 <= position <= len(album.tracks) + 1:
         return False
     index = position - 1
-    reference = album.tracks[index] if index < len(album.tracks) else album.tracks[-1]
+    if index < len(album.tracks):
+        reference = album.tracks[index]
+    elif album.tracks:
+        reference = album.tracks[-1]
+    else:
+        reference = None
     track = TrackMetadata(
         title=title.strip(),
         artist=artist,
         track_number=position,
         track_count=len(album.tracks) + 1,
-        disc_number=reference.disc_number,
-        disc_count=reference.disc_count,
+        disc_number=reference.disc_number if reference else 1,
+        disc_count=reference.disc_count if reference else 1,
         origin="manual",
     )
     album.tracks.insert(index, track)

@@ -5,6 +5,7 @@ from disctag.editing import (
     EditError,
     album_info_text,
     can_insert,
+    default_insert_position,
     delete_manual_track,
     duration_mismatch,
     fill_missing_by_duration,
@@ -63,6 +64,22 @@ class FillMissingTests(unittest.TestCase):
             fill_missing_by_duration(record, [1, 2, 3], "Singer")
         self.assertEqual(record.tracks, original)
 
+    def test_single_disc_of_multi_disc_set_can_be_aligned(self):
+        first = track("One", 60000, disc_number=2, disc_count=2)
+        second = track("Two", 120000, track_number=2, disc_number=2, disc_count=2)
+        record = album(first, second, collection_id=5)
+        missing = fill_missing_by_duration(record, [60000, 999000, 120000], "Singer")
+        self.assertEqual(missing, [2])
+        self.assertEqual([(t.disc_number, t.disc_count, t.track_number) for t in record.tracks],
+                         [(2, 2, 1), (2, 2, 2), (2, 2, 3)])
+        self.assertEqual(record.tracks[1].origin, "auto-manual")
+
+    def test_tracks_spanning_discs_are_rejected(self):
+        record = album(track("One", 60000, disc_count=2),
+                       track("Two", 120000, disc_number=2, disc_count=2), collection_id=5)
+        with self.assertRaises(EditError):
+            fill_missing_by_duration(record, [60000, 999000, 120000], "Singer")
+
     def test_unalignable_durations_are_rejected(self):
         record = album(track(duration_ms=60000), track(duration_ms=120000), collection_id=5)
         original = list(record.tracks)
@@ -86,6 +103,23 @@ class InsertTests(unittest.TestCase):
         self.assertFalse(insert_manual_track(record, 1, 1, "Song", "A"))
         self.assertFalse(insert_manual_track(record, 2, 3, "Song", "A"))
         self.assertEqual(len(record.tracks), 1)
+
+
+    def test_insert_into_empty_track_list_uses_first_disc(self):
+        record = album(collection_id=5)
+        self.assertTrue(insert_manual_track(record, 1, 1, "Only", "A"))
+        self.assertEqual([(t.title, t.track_number, t.track_count, t.disc_number, t.disc_count) for t in record.tracks],
+                         [("Only", 1, 1, 1, 1)])
+
+    def test_default_insert_position_is_clamped(self):
+        self.assertEqual(default_insert_position(None, 3), 4)
+        # 行号从 0 开始，默认插到选中行所在的曲序。
+        self.assertEqual(default_insert_position(0, 3), 1)
+        self.assertEqual(default_insert_position(2, 3), 3)
+        self.assertEqual(default_insert_position(3, 3), 4)
+        # 选中本地多出的行（第 5、6 行）时不能超出在线曲目数 + 1。
+        self.assertEqual(default_insert_position(5, 3), 4)
+        self.assertEqual(default_insert_position(4, 0), 1)
 
 
 class DeleteTests(unittest.TestCase):
