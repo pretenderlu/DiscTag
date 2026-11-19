@@ -1,9 +1,11 @@
 """Conversion jobs and the queue that runs them one album at a time."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .audio import output_directory, output_path
 from .i18n import tr
 from .models import AlbumMetadata, ConversionFailure, ConversionResult
 from .trash import move_to_trash, trash_name
@@ -91,6 +93,14 @@ class ConversionJob:
     def same_input(self, sources: list[Path]) -> bool:
         return [path.resolve() for path in self.sources] == [path.resolve() for path in sources]
 
+    def output_paths(self) -> set[Path]:
+        """Every file the job writes, normalised (absolute, case-folded on Windows) so paths can be compared."""
+        directory = output_directory(self.output_root, self.album)
+        paths = [output_path(directory, track, self.output_format) for track in self.album.tracks]
+        if self.cover_data:
+            paths.append(directory / "cover.jpg")
+        return {Path(os.path.normcase(os.path.abspath(path))) for path in paths}
+
 
 def trash_sources_if_complete(job: ConversionJob, result: ConversionResult, mover=move_to_trash) -> None:
     """Moves the job's source WAVs to the trash, but only if every track was written successfully."""
@@ -122,6 +132,26 @@ class JobQueue:
                 return True
         self.jobs.append(job)
         return False
+
+    def conflict(self, job: ConversionJob) -> tuple[str, ConversionJob] | None:
+        """Finds an unfinished job that would clash with ``job``.
+
+        Returns ``("running_trash", existing)`` when the same WAVs are being processed and will be moved to the
+        trash, ``("output", existing)`` when both jobs would write the same output file, otherwise None. A pending
+        job for the same WAVs is not a conflict because ``add`` replaces it.
+        """
+        outputs = job.output_paths()
+        for existing in self.jobs:
+            if existing.status not in {PENDING, RUNNING}:
+                continue
+            same_input = existing.same_input(job.sources)
+            if existing.status == PENDING and same_input:
+                continue
+            if existing.status == RUNNING and existing.trash_sources and same_input:
+                return "running_trash", existing
+            if existing.output_paths() & outputs:
+                return "output", existing
+        return None
 
     def next_pending(self) -> ConversionJob | None:
         return next((job for job in self.jobs if job.status == PENDING), None)

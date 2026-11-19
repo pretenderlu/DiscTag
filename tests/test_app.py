@@ -53,6 +53,8 @@ class AppTests(unittest.TestCase):
         a.source_durations = {}
         a.album = None
         a.album_region = ""
+        a.loaded_result_iid = None
+        a._restoring_result_selection = False
         a.metadata_dirty = False
         a.cover_data = None
         a.cover_is_local = False
@@ -106,6 +108,60 @@ class AppTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b"existing")
         self.assertEqual(a.album.tracks[0].track_number, 3)
 
+    def test_successful_load_remembers_result_row(self):
+        _, done, _ = self.select_album()
+        self.assertIsNone(self.app.loaded_result_iid)
+        done((self.album(), None, None))
+        self.assertEqual(self.app.loaded_result_iid, "0")
+
+    def test_declining_album_replace_restores_loaded_selection(self):
+        a = self.app
+        a.results = [AlbumSummary(1, "Loaded", "Artist", country="US"), AlbumSummary(2, "Other", "Artist", country="JP")]
+        a.album = self.album("Loaded")
+        a.metadata_dirty = True
+        a.loaded_result_iid = "0"
+        a.results_tree.selection.return_value = ("1",)
+        a.results_tree.exists.return_value = True
+        request_id = a.album_request_id
+        with patch("disctag.ui.catalog.messagebox.askyesno", return_value=False) as ask:
+            a._album_selected()
+            ask.assert_called_once()
+            # 恢复高亮时 Treeview 会再触发一次选择事件，必须被忽略。
+            self.assertTrue(a._restoring_result_selection)
+            a.results_tree.selection.return_value = ("0",)
+            a._album_selected(object())
+            ask.assert_called_once()
+        a.results_tree.selection_set.assert_called_once_with("0")
+        a.results_tree.focus.assert_called_with("0")
+        a.results_tree.see.assert_called_with("0")
+        a.results_tree.selection_remove.assert_not_called()
+        self.assertFalse(self.jobs)
+        self.assertEqual(a.album_request_id, request_id)
+        self.assertEqual(a.album.title, "Loaded")
+        reset = a.root.after_idle.call_args.args[0]
+        reset()
+        self.assertFalse(a._restoring_result_selection)
+
+    def test_declining_album_replace_without_loaded_row_clears_selection(self):
+        a = self.app
+        a.results = [AlbumSummary(1, "Other", "Artist", country="US")]
+        a.album = self.album("Manual Album")
+        a.metadata_dirty = True
+        a.results_tree.selection.return_value = ("0",)
+        with patch("disctag.ui.catalog.messagebox.askyesno", return_value=False):
+            a._album_selected()
+        a.results_tree.selection_set.assert_not_called()
+        a.results_tree.selection_remove.assert_called_once_with("0")
+        self.assertFalse(self.jobs)
+
+    def test_result_row_is_forgotten_when_results_reset(self):
+        a = self.app
+        for reset in (lambda: a._manual_mode(), lambda: a._show_results(),
+                      lambda: a._metadata_source_changed(object()), lambda: a._clear_album()):
+            a.loaded_result_iid = "0"
+            reset()
+            self.assertIsNone(a.loaded_result_iid)
+
     def test_switching_source_restores_search_and_ignores_old_callbacks(self):
         a = self.app
         a._search()
@@ -140,12 +196,14 @@ class AppTests(unittest.TestCase):
 
     def test_import_invalidates_pending_album(self):
         _, done, _ = self.select_album()
+        self.app.loaded_result_iid = "0"
         source = self.root / "new.wav"
         source.touch()
         with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(self.root)):
             self.app._import_wav()
         done((self.album(), None, None))
         self.assertIsNone(self.app.album)
+        self.assertIsNone(self.app.loaded_result_iid)
         self.assertEqual(self.app.sources, [source])
 
     def test_clear_invalidates_pending_search(self):
@@ -473,6 +531,34 @@ class AppTests(unittest.TestCase):
         a.album = self.album(title)
         a.album_var.set(title)
         self.assertTrue(a._enqueue_current())
+
+    def test_queue_refuses_album_with_conflicting_output(self):
+        a = self.app
+        self.queue_album("one", "First")
+        a.sources = [self.root / "two" / "01.wav"]
+        with patch("disctag.ui.processing.messagebox") as box:
+            self.assertFalse(a._enqueue_current())
+        box.showwarning.assert_called_once()
+        self.assertEqual(box.showwarning.call_args.args[0], "输出文件冲突")
+        self.assertIn("《First》", box.showwarning.call_args.args[1])
+        box.askyesno.assert_not_called()
+        self.assertEqual(len(a.job_queue.jobs), 1)
+
+    def test_queue_refuses_running_wavs_that_will_be_trashed(self):
+        from disctag.jobs import RUNNING
+
+        a = self.app
+        a.trash_sources_var.set(True)
+        self.queue_album("one", "First")
+        a.job_queue.jobs[0].status = RUNNING
+        a.album = self.album("Renamed")
+        a.album_var.set("Renamed")
+        with patch("disctag.ui.processing.messagebox") as box:
+            a._convert()
+        box.showwarning.assert_called_once()
+        self.assertEqual(box.showwarning.call_args.args[0], "无法加入队列")
+        self.assertEqual(len(a.job_queue.jobs), 1)
+        self.assertFalse(self.jobs)
 
     def test_queue_runs_albums_in_order_and_reports_once(self):
         from disctag.models import ConversionResult

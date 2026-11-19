@@ -78,6 +78,9 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.album_cache: dict[tuple, AlbumMetadata] = {}
         self.album: AlbumMetadata | None = None
         self.album_region = ""
+        # 当前专辑在搜索结果中的行（iid）；拒绝替换专辑时据此恢复高亮。
+        self.loaded_result_iid: str | None = None
+        self._restoring_result_selection = False
         self.metadata_dirty = False
         self.cover_data: bytes | None = None
         self.cover_preview = None

@@ -1,9 +1,11 @@
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from disctag.jobs import CANCELLED, DONE, FAILED, PARTIAL, PENDING, RUNNING, ConversionJob, JobQueue
-from disctag.models import AlbumMetadata, ConversionFailure, ConversionResult
+from disctag.models import AlbumMetadata, ConversionFailure, ConversionResult, TrackMetadata
 
 
 class JobQueueTests(unittest.TestCase):
@@ -23,6 +25,67 @@ class JobQueueTests(unittest.TestCase):
         self.assertFalse(queue.add(self.job("b")))
         self.assertTrue(queue.add(self.job("a", "New")))
         self.assertEqual([job.title for job in queue.jobs], ["New", "Album"])
+
+    def track_job(self, folder="a", title="Album", output_format="flac", trash=False, cover=None, root=None):
+        job = self.job(folder, title, output_format)
+        job.album.tracks = [TrackMetadata("One", "Artist", 1), TrackMetadata("Two", "Artist", 2)]
+        job.trash_sources = trash
+        job.cover_data = cover
+        if root is not None:
+            job.output_root = root
+        return job
+
+    def test_output_paths_cover_tracks_and_cover(self):
+        directory = self.root / "out" / "Artist" / "Album"
+        job = self.track_job()
+        expected = {directory / "01 - One.flac", directory / "02 - Two.flac"}
+        normalise = lambda paths: {Path(os.path.normcase(os.path.abspath(path))) for path in paths}  # noqa: E731
+        self.assertEqual(job.output_paths(), normalise(expected))
+        job.cover_data = b"x"
+        self.assertEqual(job.output_paths(), normalise(expected | {directory / "cover.jpg"}))
+
+    def test_pending_job_for_same_input_is_not_a_conflict(self):
+        queue = JobQueue([self.track_job("a")])
+        self.assertIsNone(queue.conflict(self.track_job("a", trash=True)))
+
+    def test_different_input_with_same_outputs_conflicts(self):
+        queue = JobQueue([self.track_job("a")])
+        self.assertEqual(queue.conflict(self.track_job("b")), ("output", queue.jobs[0]))
+        self.assertIsNone(queue.conflict(self.track_job("b", "Other Album")))
+        self.assertIsNone(queue.conflict(self.track_job("b", output_format="mp3")))
+
+    def test_cover_only_overlap_conflicts(self):
+        first = self.track_job("a", cover=b"x")
+        first.album.tracks = [TrackMetadata("One", "Artist", 1)]
+        second = self.track_job("b", cover=b"y")
+        second.album.tracks = [TrackMetadata("Two", "Artist", 2)]
+        self.assertEqual(JobQueue([first]).conflict(second), ("output", first))
+        second.cover_data = None
+        self.assertIsNone(JobQueue([first]).conflict(second))
+
+    def test_running_job_that_trashes_same_input_conflicts(self):
+        running = self.track_job("a", trash=True)
+        running.status = RUNNING
+        queue = JobQueue([running])
+        self.assertEqual(queue.conflict(self.track_job("a", "Other Album")), ("running_trash", running))
+        running.trash_sources = False
+        self.assertIsNone(queue.conflict(self.track_job("a", "Other Album")))
+        self.assertEqual(queue.conflict(self.track_job("a")), ("output", running))
+
+    def test_finished_jobs_are_ignored_for_conflicts(self):
+        queue = JobQueue([self.track_job("a", trash=True)])
+        for status in (DONE, PARTIAL, FAILED, CANCELLED):
+            queue.jobs[0].status = status
+            self.assertIsNone(queue.conflict(self.track_job("a")))
+            self.assertIsNone(queue.conflict(self.track_job("b")))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows paths are case-insensitive")
+    def test_output_conflict_ignores_case_on_windows(self):
+        queue = JobQueue([self.track_job("a", root=self.root / "Out")])
+        upper = self.track_job("b", "ALBUM", root=self.root / "OUT")
+        upper.album.artist = upper.album.album_artist = "ARTIST"
+        upper.album.tracks = [TrackMetadata("ONE", "Artist", 1)]
+        self.assertEqual(queue.conflict(upper), ("output", queue.jobs[0]))
 
     def test_finished_job_is_not_replaced(self):
         queue = JobQueue()

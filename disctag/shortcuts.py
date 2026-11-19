@@ -32,6 +32,17 @@ FUNCTION_KEYS = {f"F{number}" for number in range(1, 13)}
 NAVIGATION_KEYS = {"Up", "Down", "Left", "Right", "Tab", "Esc", "Home", "End", "PageUp", "PageDown"}
 # 文本编辑常用组合键，留给输入框使用。
 EDITING_KEYS = {"C", "V", "X", "A", "Z", "Y"}
+# macOS 系统级快捷键（退出、关闭窗口、隐藏、最小化、切换应用、Spotlight、强制退出）。
+MACOS_RESERVED = {"Cmd+Q", "Cmd+W", "Cmd+H", "Cmd+M", "Cmd+Tab", "Cmd+Space", "Cmd+Alt+Esc"}
+# Tk 用名称表示的符号键（多为 Shift+数字/标点），显示时换成字符本身；保存的写法不变。
+SYMBOL_KEYS = {
+    "exclam": "!", "at": "@", "numbersign": "#", "dollar": "$", "percent": "%", "asciicircum": "^",
+    "ampersand": "&", "asterisk": "*", "parenleft": "(", "parenright": ")", "underscore": "_", "plus": "+",
+    "braceleft": "{", "braceright": "}", "bar": "|", "colon": ":", "quotedbl": '"', "less": "<",
+    "greater": ">", "question": "?", "asciitilde": "~", "minus": "-", "equal": "=", "bracketleft": "[",
+    "bracketright": "]", "backslash": "\\", "semicolon": ";", "apostrophe": "'", "quoteright": "'",
+    "comma": ",", "period": ".", "slash": "/", "grave": "`", "quoteleft": "`",
+}
 
 
 @dataclass(frozen=True)
@@ -70,8 +81,9 @@ def resolve_default(spec: str, platform: str | None = None) -> str:
 
 
 def from_event(keysym: str, state: int, platform: str | None = None) -> str | None:
-    """Canonical shortcut for a Tk key event, or None for a bare modifier key."""
-    if keysym in MODIFIER_KEYSYMS:
+    """Canonical shortcut for a Tk key event, or None for a bare modifier key or an unknown key."""
+    # Windows 输入法组字时 Tk 可能给出 "??" 这样的无效 keysym。
+    if not keysym or keysym == "??" or keysym in MODIFIER_KEYSYMS:
         return None
     masks = MODIFIER_MASKS[platform_key(platform)]
     modifiers = [name for name in MODIFIER_ORDER if name in masks and state & masks[name]]
@@ -95,6 +107,8 @@ def validate(spec: str, scope: str) -> str | None:
         return tr("这是复制、粘贴等文本编辑快捷键，请换一个")
     if modifiers == ["Alt"] and key == "F4":
         return tr("Alt+F4 用于关闭窗口，请换一个")
+    if spec in MACOS_RESERVED:
+        return tr("这是 macOS 系统快捷键，请换一个")
     if scope == GLOBAL and key not in FUNCTION_KEYS and not any(name in modifiers for name in ("Ctrl", "Cmd", "Alt")):
         return tr("全局快捷键需要包含 Ctrl、Alt 或 ⌘，或使用 F1–F12，以免输入文字时误触发")
     return None
@@ -138,7 +152,7 @@ def display(spec: str, platform: str | None = None) -> str:
         "Space": tr("空格"), "Enter": tr("回车"), "Up": "↑", "Down": "↓", "Left": "←", "Right": "→",
         "Backspace": "Backspace", "Delete": "Delete",
     }
-    key = names.get(key, key)
+    key = names.get(key) or SYMBOL_KEYS.get(key, key)
     if platform_key(platform) == "darwin":
         symbols = {"Ctrl": "⌃", "Cmd": "⌘", "Alt": "⌥", "Shift": "⇧"}
         return "".join(symbols[name] for name in modifiers) + key

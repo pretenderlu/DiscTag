@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from disctag import shortcuts as sc
 
@@ -24,6 +26,15 @@ class FromEventTests(unittest.TestCase):
 
     def test_bare_modifier_returns_none(self):
         self.assertIsNone(sc.from_event("Control_L", 0x4, "win32"))
+
+    def test_unknown_ime_keysym_returns_none(self):
+        for platform in ("win32", "darwin"):
+            self.assertIsNone(sc.from_event("??", 0, platform))
+            self.assertIsNone(sc.from_event("??", 0x4, platform))
+            self.assertIsNone(sc.from_event("", 0, platform))
+
+    def test_shifted_symbol_keeps_tk_keysym(self):
+        self.assertEqual(sc.from_event("exclam", 0x4 | 0x1, "win32"), "Ctrl+Shift+exclam")
 
 
 class ValidateTests(unittest.TestCase):
@@ -84,12 +95,92 @@ class LoadTests(unittest.TestCase):
         self.assertIsNone(sc.conflict(mapping, "Ctrl+F", "search"))
 
 
+class MacOSReservedTests(unittest.TestCase):
+    RESERVED = (("q", 0x8), ("w", 0x8), ("h", 0x8), ("m", 0x8), ("Tab", 0x8), ("space", 0x8), ("Escape", 0x8 | 0x10))
+
+    def test_macos_system_shortcuts_are_reserved(self):
+        for keysym, state in self.RESERVED:
+            spec = sc.from_event(keysym, state, "darwin")
+            for scope in (sc.TABLE, sc.GLOBAL):
+                self.assertEqual(sc.validate(spec, scope), "这是 macOS 系统快捷键，请换一个", spec)
+
+    def test_other_macos_combinations_are_allowed(self):
+        for spec in ("Cmd+Shift+Q", "Cmd+Alt+W", "Cmd+Esc", "Cmd+O"):
+            self.assertIsNone(sc.validate(spec, sc.GLOBAL), spec)
+
+    def test_windows_is_not_affected(self):
+        for keysym, state in self.RESERVED:
+            spec = sc.from_event(keysym, state | 0x4, "win32")
+            self.assertNotIn("Cmd", spec)
+            self.assertNotEqual(sc.validate(spec, sc.TABLE), "这是 macOS 系统快捷键，请换一个", spec)
+        self.assertIsNone(sc.validate("Ctrl+Q", sc.GLOBAL))
+        self.assertEqual(sc.load({"import_wav": "Ctrl+Q"}, "win32")["import_wav"], "Ctrl+Q")
+
+    def test_saved_reserved_override_falls_back_to_default(self):
+        mapping = sc.load({"import_wav": "Cmd+Q", "show_queue": "Cmd+Space"}, "darwin")
+        self.assertEqual(mapping["import_wav"], "Cmd+O")
+        self.assertEqual(mapping["show_queue"], "")
+
+
 class DisplayTests(unittest.TestCase):
     def test_display(self):
         self.assertEqual(sc.display("Ctrl+Up", "win32"), "Ctrl+↑")
         self.assertEqual(sc.display("Cmd+Shift+F", "darwin"), "⌘⇧F")
         self.assertEqual(sc.display("Space", "win32"), "空格")
         self.assertEqual(sc.display("", "win32"), "未设置")
+
+    def test_display_symbol_keys(self):
+        self.assertEqual(sc.display("Shift+exclam", "win32"), "Shift+!")
+        self.assertEqual(sc.display("Ctrl+Shift+question", "win32"), "Ctrl+Shift+?")
+        self.assertEqual(sc.display("Shift+asciitilde", "win32"), "Shift+~")
+        self.assertEqual(sc.display("Cmd+Shift+parenleft", "darwin"), "⌘⇧(")
+        self.assertEqual(sc.display("Ctrl+Shift+F", "win32"), "Ctrl+Shift+F")
+
+
+class WindowEscapeTests(unittest.TestCase):
+    def app(self):
+        return SimpleNamespace(_px=lambda value: value, root=Mock(), shortcut_map=sc.load({}, "win32"),
+                               shortcut_window=None, queue_window=None, job_queue=Mock(jobs=[]),
+                               converting=False, updating=False)
+
+    def escape_handler(self, window):
+        handlers = [call.args[1] for call in window.window.bind.call_args_list if call.args[0] == "<Escape>"]
+        self.assertEqual(len(handlers), 1)
+        return handlers[0]
+
+    def test_escape_closes_shortcut_window(self):
+        from disctag.ui import shortcut_window
+
+        app = self.app()
+        with patch.object(shortcut_window, "tk"), patch.object(shortcut_window, "ttk"):
+            window = shortcut_window.ShortcutWindow(app)
+        app.shortcut_window = window
+        self.escape_handler(window)(object())
+        window.window.destroy.assert_called_once()
+        self.assertIsNone(app.shortcut_window)
+
+    def test_escape_closes_queue_window(self):
+        from disctag.ui import queue_window
+
+        app = self.app()
+        with patch.object(queue_window, "tk"), patch.object(queue_window, "ttk"),                 patch.object(queue_window.QueueWindow, "refresh"):
+            window = queue_window.QueueWindow(app)
+        app.queue_window = window
+        self.escape_handler(window)(object())
+        window.window.destroy.assert_called_once()
+        self.assertIsNone(app.queue_window)
+
+    def test_escape_in_recorder_only_closes_recorder(self):
+        from disctag.ui import shortcut_window
+
+        owner = Mock()
+        dialog = shortcut_window.CaptureDialog.__new__(shortcut_window.CaptureDialog)
+        dialog.owner, dialog.action, dialog.window = owner, sc.actions()[0], Mock()
+        result = dialog._on_key(SimpleNamespace(keysym="Escape", state=0))
+        self.assertEqual(result, "break")
+        dialog.window.destroy.assert_called_once()
+        owner.window.destroy.assert_not_called()
+        owner.assign.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -82,16 +82,8 @@ class ProcessingMixin:
         album.genre = self.genre_var.get().strip()
         renumber_tracks(album.tracks)
         output_root = Path(self.output_var.get().strip()).expanduser()
-        directory = output_directory(output_root, album)
-        existing = [output_path(directory, track, self.format_var.get()) for track in album.tracks]
-        if self.cover_data:
-            existing.append(directory / "cover.jpg")
-        if any(path.exists() for path in existing):
-            overwrite = messagebox.askyesno(tr("确认覆盖"), tr("输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？"), parent=self.root)
-            if not overwrite:
-                return None
         embed_cover, embed_max_size = self._cover_embed_choice()
-        return ConversionJob(
+        job = ConversionJob(
             sources=list(self.sources),
             album=album,
             output_root=output_root,
@@ -102,6 +94,23 @@ class ProcessingMixin:
             embed_max_size=embed_max_size,
             trash_sources=bool(self.trash_sources_var.get()),
         )
+        conflict = self.job_queue.conflict(job)
+        if conflict is not None:
+            kind, existing = conflict
+            if kind == "running_trash":
+                messagebox.showwarning(tr("无法加入队列"), tr("这批 WAV 正在处理，完成后会移到{0}，不能再次加入队列。", trash_name()), parent=self.root)
+            else:
+                messagebox.showwarning(tr("输出文件冲突"), tr("队列中的《{0}》会写入相同的输出文件。请修改专辑信息或输出目录后再加入队列。", existing.title), parent=self.root)
+            return None
+        directory = output_directory(output_root, album)
+        existing = [output_path(directory, track, job.output_format) for track in album.tracks]
+        if self.cover_data:
+            existing.append(directory / "cover.jpg")
+        if any(path.exists() for path in existing):
+            overwrite = messagebox.askyesno(tr("确认覆盖"), tr("输出目录中已有同名曲目或封面。继续处理会覆盖这些文件，是否继续？"), parent=self.root)
+            if not overwrite:
+                return None
+        return job
 
     def _enqueue_current(self) -> bool:
         job = self._prepare_job()

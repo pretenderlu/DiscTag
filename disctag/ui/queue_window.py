@@ -25,6 +25,7 @@ class QueueWindow:
         self.window.geometry(f"{px(860)}x{px(420)}")
         self.window.configure(bg="#FFFFFF")
         self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.window.bind("<Escape>", lambda _event: self.close())
 
         body = ttk.Frame(self.window, style="Card.TFrame", padding=px(16))
         body.pack(fill="both", expand=True)

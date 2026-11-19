@@ -35,6 +35,7 @@ class CatalogMixin:
         self.result_markers = {}
         self.album_cache = {}
         self.results_tree.delete(*self.results_tree.get_children())
+        self.loaded_result_iid = None
         self.album = None
         self.album_region = ""
         self.metadata_dirty = False
@@ -159,6 +160,8 @@ class CatalogMixin:
 
     def _show_results(self) -> None:
         self.results_tree.delete(*self.results_tree.get_children())
+        # 结果列表已重建，旧的行号不再对应当前载入的专辑。
+        self.loaded_result_iid = None
         for index, entry in enumerate(self.results):
             marker = self.result_markers.get(result_key(entry), "")
             region_text = f"{marker} {entry.country}" if marker else entry.country
@@ -173,12 +176,13 @@ class CatalogMixin:
         messagebox.showerror(tr("搜索失败"), str(error), parent=self.root)
 
     def _album_selected(self, _event=None) -> None:
-        if self.updating:
+        if self.updating or self._restoring_result_selection:
             return
         selection = self.results_tree.selection()
         if not selection:
             return
-        summary = self.results[int(selection[0])]
+        iid = selection[0]
+        summary = self.results[int(iid)]
         if self.album and self.metadata_dirty:
             replace = messagebox.askyesno(
                 tr("替换当前专辑资料"),
@@ -186,6 +190,7 @@ class CatalogMixin:
                 parent=self.root,
             )
             if not replace:
+                self._restore_result_selection()
                 return
         token = self.discogs_token_var.get().strip()
         cover_size = self._cover_size_value()
@@ -212,6 +217,7 @@ class CatalogMixin:
                 return
             album, cover, cover_error = result
             self.album = album
+            self.loaded_result_iid = iid
             self.album_region = summary.country
             self.metadata_dirty = False
             self.album_var.set(album.title)
@@ -243,6 +249,23 @@ class CatalogMixin:
                 self.status_var.set(alignment_message)
 
         self._run_async(work, done, lambda error: self._album_load_failed(error, request_id))
+
+    def _restore_result_selection(self) -> None:
+        """Puts the results highlight back on the loaded album after the user declined replacing it."""
+        tree = self.results_tree
+        self._restoring_result_selection = True
+        iid = self.loaded_result_iid
+        if iid is not None and tree.exists(iid):
+            tree.selection_set(iid)
+            tree.focus(iid)
+            tree.see(iid)
+        else:
+            tree.selection_remove(*tree.selection())
+        # <<TreeviewSelect>> 在事件循环中异步触发，等它处理完再解除保护。
+        self.root.after_idle(self._end_result_selection_restore)
+
+    def _end_result_selection_restore(self) -> None:
+        self._restoring_result_selection = False
 
     def _album_load_failed(self, error: Exception, request_id: int) -> None:
         if request_id != self.album_request_id:
@@ -277,6 +300,7 @@ class CatalogMixin:
             self.result_markers = {}
             self.album_cache = {}
             self.results_tree.delete(*self.results_tree.get_children())
+            self.loaded_result_iid = None
             self.album = None
             self.album_region = ""
             self.metadata_dirty = False

@@ -56,6 +56,7 @@ class TracksMixin:
             if selection:
                 self.results_tree.selection_set(selection)
         self.album = None
+        self.loaded_result_iid = None
         self.album_region = ""
         self.metadata_dirty = False
         self.cover_data = None
@@ -95,6 +96,7 @@ class TracksMixin:
             tracks=tracks,
         )
         self.album_region = ""
+        self.loaded_result_iid = None
         self.metadata_dirty = True
         self.album_artist_var.set(self.album.album_artist)
         self._update_album_info()
