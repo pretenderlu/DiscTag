@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds a minimal static FFmpeg for DiscTag (WAV in -> FLAC / MP3 out).
+# Builds a minimal static FFmpeg for DiscTag
+# (WAV / FLAC / APE in -> FLAC / MP3 / PCM WAV out, atrim for CUE splitting).
 # Usage: bash scripts/build_ffmpeg.sh [output_dir]
 set -euo pipefail
 
@@ -94,11 +95,11 @@ fi
     --enable-ffmpeg \
     --enable-libmp3lame \
     --enable-protocol=file,pipe \
-    --enable-demuxer=wav \
-    --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8 \
-    --enable-encoder=flac,libmp3lame \
-    --enable-muxer=flac,mp3 \
-    --enable-filter=abuffer,abuffersink,aformat,anull,aresample \
+    --enable-demuxer=wav,flac,ape \n    --enable-parser=flac \
+    --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8,flac,ape \
+    --enable-encoder=flac,libmp3lame,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
+    --enable-muxer=flac,mp3,wav \
+    --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,asetpts \
     --extra-cflags="-I$PREFIX/include" \
     --extra-ldflags="$EXTRA_LDFLAGS"
 make -j"$JOBS"
@@ -125,3 +126,29 @@ if [ -n "${BAD:-}" ]; then
     exit 1
 fi
 echo "OK: $OUT_DIR/$EXE links system libraries only."
+
+echo "=== Component self-check ==="
+require_components() {
+    local kind="$1"; shift
+    local listing
+    listing=$("$OUT_DIR/$EXE" -hide_banner "-$kind" 2>/dev/null | tr -d '')
+    local name missing=0
+    for name in "$@"; do
+        if ! printf '%s
+' "$listing" | awk -v n="$name" '$2 == n { found = 1 } END { exit !found }'; then
+            echo "ERROR: $kind is missing '$name'" >&2
+            missing=1
+        fi
+    done
+    return "$missing"
+}
+FAIL=0
+require_components decoders flac ape pcm_s16le pcm_s24le pcm_f32le || FAIL=1
+require_components encoders pcm_s16le pcm_s24le flac libmp3lame || FAIL=1
+require_components filters atrim asetpts aformat aresample || FAIL=1
+require_components muxers wav flac mp3 || FAIL=1
+require_components demuxers wav flac ape || FAIL=1
+if [ "$FAIL" -ne 0 ]; then
+    exit 1
+fi
+echo "OK: required decoders, encoders, filters and muxers are present."
