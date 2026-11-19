@@ -1,7 +1,8 @@
 """Minimal UI translation: Chinese source strings, looked up in an English catalog when English is active.
 
-Strings are wrapped as ``tr("中文 {0}", value)``. The language must be chosen before the UI modules are
-imported (see main.py), because some labels are built at import time; changing it takes a restart.
+Strings are wrapped as ``tr("中文 {0}", value)`` and translated on each call, so nothing may call ``tr`` at
+import time (localized constants are functions instead). main.py still sets the language before importing
+the UI; changing it takes a restart because existing widgets keep their text.
 """
 from __future__ import annotations
 

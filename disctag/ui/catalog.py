@@ -2,19 +2,20 @@
 from __future__ import annotations
 
 import copy
+from collections import Counter
 from tkinter import messagebox
 
 from ..i18n import tr
-from ..itunes import ITUNES_REGIONS
+from ..itunes import itunes_region_name
 from ..models import AlbumMetadata, AlbumSummary
 from ..musicbrainz import MusicBrainzError, toc_from_durations
 from ..ranking import EXACT, DurationFit, candidates_to_verify, rank_results, result_key, verify_candidates
 from .common import (
     SOURCE_DISCOGS,
-    SOURCE_HINTS,
     SOURCE_ITUNES,
     SOURCE_MUSICBRAINZ,
     _region_code,
+    source_hint,
 )
 
 
@@ -77,7 +78,7 @@ class CatalogMixin:
         elif region == "CN":
             self.status_var.set(tr("正在查询中国大陆 Apple Music 公开网页…"))
         else:
-            self.status_var.set(tr("正在查询 {0} iTunes…", ITUNES_REGIONS[region]))
+            self.status_var.set(tr("正在查询 {0} iTunes…", itunes_region_name(region)))
 
         local_ms = [
             duration * 1000 if (duration := self._source_duration(path)) is not None else None
@@ -137,12 +138,26 @@ class CatalogMixin:
                     results.append(entry)
             except MusicBrainzError as exc:
                 toc_error = exc
+        albums: dict[tuple, AlbumMetadata] = {}
+        # 同一张唱片里有多张曲目数相同的光盘时，TOC 查询无法区分，逐张载入按时长核对。
+        release_counts = Counter(entry.collection_id for entry in results)
+        ambiguous = [entry for entry in results if release_counts[entry.collection_id] > 1]
+        if ambiguous:
+            verified, albums = verify_candidates(
+                ambiguous, local_ms, lambda entry: self.musicbrainz_client.get_album(entry.collection_id, entry.medium)
+            )
+            for entry in ambiguous:
+                key = result_key(entry)
+                if key in verified:
+                    fits[key] = verified[key]
+                else:
+                    fits.pop(key, None)
         if album:
             matched = {entry.collection_id for entry in results}
             results.extend(entry for entry in self.musicbrainz_client.search_albums(album, artist) if entry.collection_id not in matched)
         elif toc_error is not None:
             raise toc_error
-        return rank_results(results, fits, len(local_ms)), fits, {}
+        return rank_results(results, fits, len(local_ms)), fits, albums
 
     def _load_album(self, summary: AlbumSummary, token: str) -> AlbumMetadata:
         if summary.source == "discogs":
@@ -293,7 +308,7 @@ class CatalogMixin:
             self.search_button.configure(text=tr("搜索 iTunes"))
         hint_label = getattr(self, "region_hint_label", None)
         if hint_label is not None:
-            hint_label.configure(text=SOURCE_HINTS.get(source, ""))
+            hint_label.configure(text=source_hint(source))
         if _event is not None:
             self._invalidate_metadata_requests()
             self.results = []

@@ -79,6 +79,17 @@ class ClientTests(unittest.TestCase):
         self.assertEqual([(r.collection_id, r.medium, r.track_count) for r in results], [("box", 2, 2)])
         self.assertIn("CD 2/2", results[0].detail)
 
+    def test_lookup_toc_lists_every_matching_medium(self):
+        payload = {"releases": [
+            {"id": "set", "title": "Set", "media": [{"position": 1, "format": "CD", "track-count": 2},
+                                                     {"position": 2, "format": "DVD-Video", "track-count": 2},
+                                                     {"position": 3, "format": "CD", "track-count": 2}]},
+        ]}
+        results = self.client(payload).lookup_toc("1+2+525+150+300")
+        self.assertEqual([(r.collection_id, r.medium) for r in results], [("set", 1), ("set", 3)])
+        self.assertIn("CD 1/3", results[0].detail)
+        self.assertIn("CD 3/3", results[1].detail)
+
     def test_search_skips_non_cd_releases(self):
         payload = {"releases": [
             {"id": "cd", "title": "Album", "media": [{"format": "CD", "track-count": 10}], "track-count": 10,
@@ -95,7 +106,7 @@ class ClientTests(unittest.TestCase):
         ok.json.return_value = {"releases": []}
         client = MusicBrainzClient()
         client._throttle = Mock()
-        with patch("disctag.musicbrainz.requests.get", side_effect=[busy, ok]), patch("disctag.musicbrainz.time.sleep"):
+        with patch("disctag.musicbrainz.http_session", return_value=Mock(get=Mock(side_effect=[busy, ok]))), patch("disctag.musicbrainz.time.sleep"):
             self.assertEqual(client._get("release/", {}), {"releases": []})
 
     def test_cover_prefers_thumbnail_for_small_sizes(self):

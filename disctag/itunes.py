@@ -7,18 +7,25 @@ import requests
 
 from . import __version__
 from .apple_music_web import AppleMusicWebClient
-from .catalog_common import fetch_cover
+from .catalog_common import fetch_cover, http_session
 from .catalog_common import match_score as _match_score
 from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
-ITUNES_REGIONS = {
-    "US": tr("美国"),
-    "JP": tr("日本"),
-    "CN": tr("中国大陆"),
-    "HK": tr("中国香港"),
-    "TW": tr("中国台湾"),
-}
+ITUNES_REGION_CODES = ("US", "JP", "CN", "HK", "TW")
+
+
+def itunes_region_name(code: str) -> str:
+    """Localized region name; built on call so the current UI language is used."""
+    names = {
+        "US": tr("美国"),
+        "JP": tr("日本"),
+        "CN": tr("中国大陆"),
+        "HK": tr("中国香港"),
+        "TW": tr("中国台湾"),
+    }
+    return names.get(code, code)
+
 COVER_SIZES = (600, 1200, 2400, 3000)
 
 
@@ -75,17 +82,17 @@ class ITunesClient:
 
     def _search_all_regions(self, album: str, artist: str) -> list[AlbumSummary]:
         albums: list[AlbumSummary] = []
-        with ThreadPoolExecutor(max_workers=len(ITUNES_REGIONS)) as executor:
+        with ThreadPoolExecutor(max_workers=len(ITUNES_REGION_CODES)) as executor:
             futures = {
                 executor.submit(self._search_region, album, artist, region): region
-                for region in ITUNES_REGIONS
+                for region in ITUNES_REGION_CODES
             }
             for future in as_completed(futures):
                 region = futures[future]
                 try:
                     albums.extend(future.result())
                 except Exception as exc:
-                    self.last_warnings.append(tr("{0}：{1}", ITUNES_REGIONS[region], exc))
+                    self.last_warnings.append(tr("{0}：{1}", itunes_region_name(region), exc))
         unique = {(entry.country, entry.collection_id): entry for entry in albums}
         return sorted(
             unique.values(),
@@ -107,7 +114,11 @@ class ITunesClient:
         )
         results = data.get("results", [])
         collection = next(
-            (item for item in results if int(item.get("collectionId", 0)) == collection_id),
+            (
+                item
+                for item in results
+                if item.get("wrapperType") == "collection" and int(item.get("collectionId", 0)) == collection_id
+            ),
             None,
         )
         if collection is None:
@@ -162,7 +173,7 @@ class ITunesClient:
 
     def _get(self, url: str, params: dict) -> dict:
         try:
-            response = requests.get(url, params=params, headers={"User-Agent": f"DiscTag/{__version__}"}, timeout=self.timeout)
+            response = http_session().get(url, params=params, headers={"User-Agent": f"DiscTag/{__version__}"}, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as exc:

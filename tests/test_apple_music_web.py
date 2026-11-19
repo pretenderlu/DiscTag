@@ -15,7 +15,7 @@ def page(root):
 def get_for(html):
     response = Mock()
     response.text = html
-    return patch("disctag.apple_music_web.requests.get", return_value=response)
+    return patch("disctag.apple_music_web.http_session", return_value=Mock(get=Mock(return_value=response)))
 
 
 def album_item(adam_id, title, **extra):
@@ -47,10 +47,10 @@ class SearchTests(unittest.TestCase):
 
     def test_search_albums_requires_a_term(self):
         client = AppleMusicWebClient()
-        with patch("disctag.apple_music_web.requests.get") as get:
+        with patch("disctag.apple_music_web.http_session") as session:
             with self.assertRaises(AppleMusicWebError):
                 client.search_albums("", "")
-            get.assert_not_called()
+            session.assert_not_called()
 
 
 class GetAlbumTests(unittest.TestCase):
@@ -99,7 +99,7 @@ class GetAlbumTests(unittest.TestCase):
 
     def test_request_failure_is_wrapped(self):
         client = AppleMusicWebClient()
-        with patch("disctag.apple_music_web.requests.get", side_effect=requests.ConnectionError("down")):
+        with patch("disctag.apple_music_web.http_session", return_value=Mock(get=Mock(side_effect=requests.ConnectionError("down")))):
             with self.assertRaises(AppleMusicWebError):
                 client.get_album(123)
 

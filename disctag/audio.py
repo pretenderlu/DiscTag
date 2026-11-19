@@ -81,7 +81,8 @@ def clean_track_title(path: Path) -> str:
     return title or path.stem
 
 
-def safe_component(value: str, fallback: str = tr("未命名")) -> str:
+def safe_component(value: str, fallback: str | None = None) -> str:
+    fallback = tr("未命名") if fallback is None else fallback
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", value).strip().rstrip(".")
     value = re.sub(r"\s+", " ", value)
     if not value:

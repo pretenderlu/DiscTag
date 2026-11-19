@@ -98,9 +98,10 @@ class DiscogsTests(unittest.TestCase):
         Image.new("RGB", (16, 16), "red").save(content, "JPEG")
         response = Mock(headers={})
         response.iter_content.return_value = [content.getvalue()]
-        with unittest.mock.patch("disctag.discogs.requests.get", return_value=response) as get:
+        with unittest.mock.patch("disctag.catalog_common.http_session") as session:
+            session.return_value.get.return_value = response
             DiscogsClient().download_cover("https://img.discogs.example/cover.jpg", 600, "secret")
-        self.assertNotIn("Authorization", get.call_args.kwargs["headers"])
+        self.assertNotIn("Authorization", session.return_value.get.call_args.kwargs["headers"])
 
     def test_release_date_strips_trailing_zero_parts(self):
         for released, expected in (("1995-03-00", "1995-03"), ("1995-00-00", "1995")):

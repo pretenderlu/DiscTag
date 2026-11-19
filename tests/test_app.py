@@ -713,6 +713,32 @@ class AppTests(unittest.TestCase):
         work()
         a.musicbrainz_client.get_album.assert_called_once_with("rel", 1)
 
+    def test_musicbrainz_toc_verifies_media_of_same_release(self):
+        a = self.app
+        a.metadata_source_var.set("MusicBrainz")
+        a.album_var.set("")
+        a.sources = [self.root / "1.wav", self.root / "2.wav"]
+        a.source_durations = {a.sources[0]: 2.0, a.sources[1]: 3.0}
+        a.musicbrainz_client = Mock()
+        a.musicbrainz_client.lookup_toc.return_value = [
+            AlbumSummary("rel", "Album", "A", track_count=2, country="JP", source="musicbrainz", medium=1),
+            AlbumSummary("rel", "Album", "A", track_count=2, country="JP", source="musicbrainz", medium=2),
+        ]
+
+        def get_album(release_id, medium):
+            lengths = (9000, 9000) if medium == 1 else (2000, 3000)
+            return AlbumMetadata("Album", "A", "A", "", "", "", release_id, [
+                TrackMetadata(f"T{n}", "A", n, 2, 1, 1, duration_ms=length) for n, length in enumerate(lengths, 1)
+            ], source="musicbrainz")
+
+        a.musicbrainz_client.get_album.side_effect = get_album
+        a._search()
+        work, done, _ = self.jobs[-1]
+        results, fits, albums = work()
+        self.assertEqual([entry.medium for entry in results], [2, 1])
+        self.assertEqual({key[3]: fit.marker for key, fit in fits.items()}, {1: "", 2: "✓"})
+        self.assertEqual(set(albums), {("musicbrainz", "JP", "rel", 1), ("musicbrainz", "JP", "rel", 2)})
+
     def test_musicbrainz_requires_album_or_wav(self):
         a = self.app
         a.metadata_source_var.set("MusicBrainz")

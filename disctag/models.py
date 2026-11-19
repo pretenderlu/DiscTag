@@ -51,8 +51,10 @@ def renumber_tracks(tracks: list[TrackMetadata]) -> None:
         disc_positions[disc_number] = disc_positions.get(disc_number, 0) + 1
         track.disc_number = disc_number
         track.track_number = disc_positions[disc_number]
+    highest_disc = max(disc_positions, default=1)
     for track in tracks:
         track.track_count = disc_positions[track.disc_number]
+        track.disc_count = max(track.disc_count, highest_disc)
 
 
 @dataclass

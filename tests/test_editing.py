@@ -14,7 +14,7 @@ from disctag.editing import (
     match_status,
     track_label,
 )
-from disctag.models import AlbumMetadata, TrackMetadata
+from disctag.models import AlbumMetadata, TrackMetadata, renumber_tracks
 
 
 def album(*tracks, collection_id=None):
@@ -132,6 +132,19 @@ class DeleteTests(unittest.TestCase):
         self.assertEqual([t.title for t in record.tracks], ["A", "C"])
         self.assertTrue(delete_manual_track(record, 1))
         self.assertEqual([t.title for t in record.tracks], ["A"])
+
+
+class RenumberTests(unittest.TestCase):
+    def test_disc_count_covers_highest_disc(self):
+        tracks = [track("A", disc_number=1), track("B", disc_number=2), track("C", disc_number=2)]
+        renumber_tracks(tracks)
+        self.assertEqual([(t.disc_number, t.track_number, t.track_count, t.disc_count) for t in tracks],
+                         [(1, 1, 1, 2), (2, 1, 2, 2), (2, 2, 2, 2)])
+
+    def test_larger_disc_count_is_kept(self):
+        tracks = [track("A", disc_number=2, disc_count=3)]
+        renumber_tracks(tracks)
+        self.assertEqual((tracks[0].disc_number, tracks[0].disc_count), (2, 3))
 
 
 class LabelTests(unittest.TestCase):

@@ -7,7 +7,7 @@ import time
 import requests
 
 from . import __version__
-from .catalog_common import fetch_cover
+from .catalog_common import fetch_cover, http_session
 from .catalog_common import match_score as _match_score
 from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
@@ -117,7 +117,7 @@ class DiscogsClient:
     def _get(self, url: str, params: dict, token: str) -> dict:
         try:
             self._throttle()
-            response = requests.get(url, params=params, headers=self._headers(token), timeout=self.timeout)
+            response = http_session().get(url, params=params, headers=self._headers(token), timeout=self.timeout)
             if response.status_code == 401:
                 raise DiscogsError(tr("Discogs 令牌无效或已失效，请重新创建。"))
             if response.status_code == 429:

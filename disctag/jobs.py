@@ -17,14 +17,20 @@ PARTIAL = "partial"
 FAILED = "failed"
 CANCELLED = "cancelled"
 
-STATUS_LABELS = {
-    PENDING: tr("等待中"),
-    RUNNING: tr("处理中"),
-    DONE: tr("已完成"),
-    PARTIAL: tr("部分失败"),
-    FAILED: tr("失败"),
-    CANCELLED: tr("已取消"),
-}
+
+def status_label(status: str) -> str:
+    """Localized job status; built on call so the current UI language is used."""
+    labels = {
+        PENDING: tr("等待中"),
+        RUNNING: tr("处理中"),
+        DONE: tr("已完成"),
+        PARTIAL: tr("部分失败"),
+        FAILED: tr("失败"),
+        CANCELLED: tr("已取消"),
+    }
+    return labels.get(status, status)
+
+
 FORMAT_LABELS = {"wav": "WAV", "flac": "FLAC", "mp3": "MP3"}
 
 
@@ -58,7 +64,7 @@ class ConversionJob:
 
     @property
     def status_label(self) -> str:
-        return STATUS_LABELS.get(self.status, self.status)
+        return status_label(self.status)
 
     @property
     def finished(self) -> bool:

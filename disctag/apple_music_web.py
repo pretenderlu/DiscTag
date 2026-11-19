@@ -6,6 +6,7 @@ import re
 import requests
 
 from . import __version__
+from .catalog_common import http_session
 from .catalog_common import match_score as _match_score
 from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
@@ -106,7 +107,7 @@ class AppleMusicWebClient:
 
     def _get_page_data(self, url: str, params: dict) -> dict:
         try:
-            response = requests.get(
+            response = http_session().get(
                 url,
                 params=params,
                 headers={

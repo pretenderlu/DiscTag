@@ -11,7 +11,11 @@ from ..i18n import tr
 if TYPE_CHECKING:
     from ..app import DiscTagApp
 
-SCOPE_LABELS = {shortcuts.TABLE: tr("曲目表"), shortcuts.GLOBAL: tr("主窗口")}
+
+
+def scope_label(scope: str) -> str:
+    """Localized shortcut scope; built on call so the current UI language is used."""
+    return {shortcuts.TABLE: tr("曲目表"), shortcuts.GLOBAL: tr("主窗口")}.get(scope, scope)
 
 
 class ShortcutWindow:
@@ -87,7 +91,7 @@ class ShortcutWindow:
         for index, action in enumerate(shortcuts.actions()):
             spec = self.app.shortcut_map.get(action.id, "")
             self.tree.insert("", "end", iid=str(index),
-                             values=(action.label, shortcuts.display(spec), SCOPE_LABELS[action.scope]))
+                             values=(action.label, shortcuts.display(spec), scope_label(action.scope)))
         if selection:
             self.tree.selection_set(selection)
         self._update_buttons()

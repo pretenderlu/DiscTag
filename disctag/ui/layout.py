@@ -16,13 +16,13 @@ from .common import (
     CARD,
     MUTED,
     SOURCE_DISCOGS,
-    SOURCE_HINTS,
     SOURCE_ITUNES,
     SOURCE_MUSICBRAINZ,
     _cover_embed_labels,
     _cover_size_labels,
     _region_label,
     _region_labels,
+    source_hint,
 )
 
 
@@ -130,7 +130,7 @@ class LayoutMixin:
         self.results_tree.bind("<<TreeviewSelect>>", self._album_selected)
         self.region_hint_label = ttk.Label(
             left,
-            text=SOURCE_HINTS.get(self.metadata_source_var.get(), ""),
+            text=source_hint(self.metadata_source_var.get()),
             style="Muted.Card.TLabel",
             justify="left",
             wraplength=self._px(360),

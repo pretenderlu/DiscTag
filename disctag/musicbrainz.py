@@ -9,7 +9,7 @@ import time
 import requests
 
 from . import __version__
-from .catalog_common import fetch_cover, match_score
+from .catalog_common import fetch_cover, http_session, match_score
 from .i18n import tr
 from .models import AlbumMetadata, AlbumSummary, TrackMetadata
 
@@ -64,19 +64,15 @@ class MusicBrainzClient:
         return sorted(albums, key=lambda entry: match_score(entry, album, artist), reverse=True)[:20]
 
     def lookup_toc(self, toc: str, album: str = "", artist: str = "") -> list[AlbumSummary]:
-        """Finds releases whose disc TOC is close to the given one; each result points at the matching medium."""
+        """Finds releases whose disc TOC is close to the given one; each matching CD medium becomes its own result."""
         track_count = int(toc.split("+")[1])
         data = self._get("discid/-", {"toc": toc, "cdstubs": "no", "inc": "artist-credits"})
         albums = []
         for item in data.get("releases", []):
             media = item.get("media") or []
-            medium = next(
-                (entry for entry in media if entry.get("track-count") == track_count and _is_cd(entry.get("format"))),
-                None,
-            )
-            if medium is None:
-                continue
-            albums.append(_summary(item, medium=int(medium.get("position", 1)), medium_total=len(media)))
+            for medium in media:
+                if medium.get("track-count") == track_count and _is_cd(medium.get("format")):
+                    albums.append(_summary(item, medium=int(medium.get("position", 1)), medium_total=len(media)))
         if album.strip():
             albums.sort(key=lambda entry: match_score(entry, album, artist), reverse=True)
         return albums[:20]
@@ -148,7 +144,7 @@ class MusicBrainzClient:
         for attempt in range(3):
             self._throttle()
             try:
-                response = requests.get(
+                response = http_session().get(
                     f"{API}/{path}",
                     params={**params, "fmt": "json"},
                     headers={"User-Agent": _user_agent(), "Accept": "application/json"},
