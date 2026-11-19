@@ -76,7 +76,7 @@ python build_app.py
 
 Windows 构建会优先使用 `vendor/ffmpeg.exe`，否则使用系统 PATH 中的 FFmpeg；macOS 构建同理使用 `vendor/ffmpeg` 或系统 FFmpeg。`vendor` 和 `dist` 不会提交到仓库。
 
-发布包内置的是精简 FFmpeg（LGPL，仅支持 WAV 输入与 FLAC/MP3 输出），由 `scripts/build_ffmpeg.sh` 编译并以固定 prerelease 资产的形式托管。获取方式：
+发布包内置的是精简 FFmpeg（LGPL，仅支持 WAV/FLAC/APE 输入与 FLAC/MP3/WAV 输出），由 `scripts/build_ffmpeg.sh` 编译并以固定 prerelease 资产的形式托管。获取方式：
 
 ```bash
 python scripts/fetch_ffmpeg.py

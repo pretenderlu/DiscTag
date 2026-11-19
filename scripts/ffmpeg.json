@@ -1,8 +1,8 @@
 {
-  "tag": "ffmpeg-9.0.2",
+  "tag": "ffmpeg-9.0.2-r2",
   "assets": {
-    "windows-x64": {"name": "ffmpeg-windows-x64.exe", "sha256": "9665725b76e2e326750ae44ebf2e0b0ccba5a886784eaff095e78c31eea7ad9c"},
-    "macos-AppleSilicon": {"name": "ffmpeg-macos-AppleSilicon", "sha256": "163663c76a84f29c526bab8d862874318bfa9920564d64dd501805ba8c6be936"},
-    "macos-Intel": {"name": "ffmpeg-macos-Intel", "sha256": "04cfed3b5642f0f8efa531c22918c39086a221326d32ffa8328aff2ed646f4a3"}
+    "windows-x64": {"name": "ffmpeg-windows-x64.exe", "sha256": "fc50e3dd9390bd39f37f4237468e6b20abe0f6827b1d9717226f9267251e2da3"},
+    "macos-AppleSilicon": {"name": "ffmpeg-macos-AppleSilicon", "sha256": "9326c1ab4cabceaaa57816b3657697eee95962db51fce40013a2d2679a19b4c4"},
+    "macos-Intel": {"name": "ffmpeg-macos-Intel", "sha256": "da8743a6544d4c1c89086682826cd459c63f055cc78c6cdc99d1232dcc159d85"}
   }
 }

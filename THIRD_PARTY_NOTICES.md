@@ -5,7 +5,7 @@ DiscTag 发布包内含以下第三方组件。完整许可文本位于随附的
 ## FFmpeg 9.0.2 与 LAME 3.100（内置 `ffmpeg` 可执行文件）
 
 - 许可：GNU Lesser General Public License v2.1 或更高版本（`licenses/LGPL-2.1.txt`）。
-- 构建配置：仅启用 WAV 解码与 FLAC/MP3 编码，未启用任何 GPL 或 nonfree 组件；静态链接 LAME 3.100（LGPL）。
+- 构建配置：仅启用 WAV/FLAC/APE 解码、FLAC/MP3/PCM WAV 编码及 atrim 等基础音频滤镜，未启用任何 GPL 或 nonfree 组件；静态链接 LAME 3.100（LGPL）。
 - 对应源码：
   - FFmpeg：https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
   - LAME：https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
