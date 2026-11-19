@@ -59,7 +59,7 @@ def actions() -> list[Action]:
         Action("toggle_preview", tr("试听 / 停止选中曲目"), TABLE, "Space"),
         Action("move_up", tr("上移曲目"), TABLE, "Primary+Up"),
         Action("move_down", tr("下移曲目"), TABLE, "Primary+Down"),
-        Action("import_wav", tr("导入 WAV 文件夹"), GLOBAL, "Primary+O"),
+        Action("import_wav", tr("导入音轨文件夹"), GLOBAL, "Primary+O"),
         Action("search", tr("搜索曲库"), GLOBAL, "Primary+F"),
         Action("start", tr("开始处理"), GLOBAL, "Primary+Enter"),
         Action("add_to_queue", tr("加入队列"), GLOBAL, ""),

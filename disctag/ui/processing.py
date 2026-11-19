@@ -44,14 +44,17 @@ class ProcessingMixin:
         self.quality_combo.configure(state="readonly" if self.format_var.get() == "mp3" else "disabled")
         if not self.converting:
             if self.format_var.get() == "wav":
-                self.status_var.set(tr("WAV 不转码：输出仍为 WAV，只写入标签（RIFF ID3 块）并另存 cover.jpg；部分播放器可能读不到 WAV 标签"))
+                if any(source.path.suffix.lower() != ".wav" for source in self.sources):
+                    self.status_var.set(tr("WAV：FLAC/APE 源会解码为无损 WAV，文件会比源文件大；标签写入 RIFF ID3 块，部分播放器可能读不到"))
+                else:
+                    self.status_var.set(tr("WAV：保留原始音频数据，只写入标签（RIFF ID3 块）并另存 cover.jpg；部分播放器可能读不到 WAV 标签"))
             else:
                 self.status_var.set(tr("就绪"))
 
     def _prepare_job(self) -> ConversionJob | None:
         """Validates the current album and snapshots it into a job; shows a message and returns None if not ready."""
         if not self.sources:
-            messagebox.showwarning(tr("缺少 WAV"), tr("请先选择包含 WAV 音轨的文件夹。"), parent=self.root)
+            messagebox.showwarning(tr("缺少音轨"), tr("请先选择包含音轨文件的文件夹。"), parent=self.root)
             return None
         if not self.album:
             messagebox.showwarning(tr("缺少专辑资料"), tr("请搜索并选择专辑，或使用手动模式。"), parent=self.root)
@@ -69,7 +72,7 @@ class ProcessingMixin:
             messagebox.showwarning(tr("缺少输出目录"), tr("请选择输出根目录。"), parent=self.root)
             return None
         if self.format_var.get() != "wav" or any(
-            source.is_segment and source.path.suffix.lower() != ".wav" for source in self.sources
+            source.path.suffix.lower() != ".wav" for source in self.sources
         ):
             try:
                 find_ffmpeg()
@@ -100,7 +103,7 @@ class ProcessingMixin:
         if conflict is not None:
             kind, existing = conflict
             if kind == "running_trash":
-                messagebox.showwarning(tr("无法加入队列"), tr("这批 WAV 正在处理，完成后会移到{0}，不能再次加入队列。", trash_name()), parent=self.root)
+                messagebox.showwarning(tr("无法加入队列"), tr("这批源文件正在处理，完成后会移到{0}，不能再次加入队列。", trash_name()), parent=self.root)
             else:
                 messagebox.showwarning(tr("输出文件冲突"), tr("队列中的《{0}》会写入相同的输出文件。请修改专辑信息或输出目录后再加入队列。", existing.title), parent=self.root)
             return None
@@ -200,7 +203,7 @@ class ProcessingMixin:
         job.finish(result)
         self.last_output = result.output_directory
         if result.trashed_sources and self.sources and job.same_input(self.sources):
-            # 当前界面显示的正是已移到回收站的 WAV，清空列表以免试听或再次处理不存在的文件。
+            # 当前界面显示的正是已移到回收站的音轨，清空列表以免试听或再次处理不存在的文件。
             if self.preview.playing:
                 self.preview.stop()
             self.sources = []

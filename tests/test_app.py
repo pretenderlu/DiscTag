@@ -47,7 +47,7 @@ class AppTests(unittest.TestCase):
         a.cover_embed_var = Variable("同 cover.jpg")
         for name in ("root", "search_button", "region_label", "region_combo", "token_header",
                      "discogs_token_entry", "results_tree", "convert_button", "clear_button",
-                     "progress", "preview", "cover_label", "album_entry", "enqueue_button"):
+                     "progress", "preview", "cover_label", "album_entry", "enqueue_button", "quality_combo"):
             setattr(a, name, Mock())
         a.results_tree.get_children.return_value = ()
         a.sources = [SourceTrack(self.root / "source.wav")]
@@ -274,6 +274,65 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(a.sources), 3)
         self.assertEqual({source.cue for source in a.sources}, {second})
 
+    def test_imports_flac_ape_and_wav_tracks(self):
+        a = self.app
+        folder = self.root / "mixed"
+        folder.mkdir()
+        for name in ("02.ape", "01.flac", "03.wav"):
+            (folder / name).write_bytes(b"dummy")
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)):
+            a._import_wav()
+        self.assertEqual([source.name for source in a.sources], ["01.flac", "02.ape", "03.wav"])
+        self.assertFalse(any(source.is_segment for source in a.sources))
+
+    def test_import_status_warns_only_when_wav_output_needs_decoding(self):
+        a = self.app
+        a.format_var.set("wav")
+        for name, files, expected in (
+            ("wavs", ("01.wav", "02.wav"), "已导入 2 个音轨文件"),
+            ("flacs", ("01.flac", "02.wav"),
+             "WAV：FLAC/APE 源会解码为无损 WAV，文件会比源文件大；标签写入 RIFF ID3 块，部分播放器可能读不到"),
+        ):
+            folder = self.root / name
+            folder.mkdir()
+            for file in files:
+                (folder / file).write_bytes(b"dummy")
+            with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)):
+                a._import_wav()
+            self.assertEqual(a.status_var.get(), expected)
+
+    def test_same_stem_in_several_formats_prefers_wav(self):
+        a = self.app
+        folder = self.root / "dupes"
+        folder.mkdir()
+        for name in ("01.FLAC", "01.wav", "01.ape", "02.flac", "02.ape"):
+            (folder / name).write_bytes(b"dummy")
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)):
+            a._import_wav()
+        self.assertEqual([source.name for source in a.sources], ["01.wav", "02.flac"])
+
+    def test_image_cue_wins_over_per_track_files(self):
+        a = self.app
+        folder = self.root / "rip"
+        cue = self.write_image_cue(folder)
+        (folder / "99.flac").write_bytes(b"dummy")
+        with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(folder)):
+            a._import_wav()
+        self.assertEqual(len(a.sources), 3)
+        self.assertTrue(all(source.is_segment and source.cue == cue for source in a.sources))
+
+    def test_wav_hint_depends_on_source_formats(self):
+        a = self.app
+        a.quality_combo = Mock()
+        a.sources = [SourceTrack(self.root / "a.wav")]
+        a._format_changed()
+        self.assertEqual(a.status_var.get(),
+                         "WAV：保留原始音频数据，只写入标签（RIFF ID3 块）并另存 cover.jpg；部分播放器可能读不到 WAV 标签")
+        a.sources = [SourceTrack(self.root / "a.flac")]
+        a._format_changed()
+        self.assertEqual(a.status_var.get(),
+                         "WAV：FLAC/APE 源会解码为无损 WAV，文件会比源文件大；标签写入 RIFF ID3 块，部分播放器可能读不到")
+
     def test_per_track_cue_imports_wavs_normally(self):
         a = self.app
         a.cue_toc = "stale"
@@ -299,7 +358,7 @@ class AppTests(unittest.TestCase):
         empty.mkdir()
         with patch("disctag.ui.tracks.filedialog.askdirectory", return_value=str(empty)),                 patch("disctag.ui.tracks.messagebox") as box:
             a._import_wav()
-        self.assertEqual(box.showwarning.call_args.args[1], "所选文件夹中没有找到 .wav 文件或 CUE 整轨。")
+        self.assertEqual(box.showwarning.call_args.args[1], "所选文件夹中没有找到 WAV、FLAC、APE 音轨或 CUE 整轨。")
         self.assertEqual(a.sources, [SourceTrack(self.root / "source.wav")])
 
     def test_musicbrainz_search_uses_cue_toc(self):

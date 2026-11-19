@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .audio import extract_wav_segment, source_duration, wav_duration
+from .audio import decode_to_wav, source_duration
 from .i18n import tr
 from .sources import SourceTrack
 
@@ -71,7 +71,7 @@ class AudioPreview:
         self.stop()
         source = SourceTrack.of(source)
         path = source.path
-        if source.is_segment:
+        if source.is_segment or source.path.suffix.lower() != ".wav":
             path = self._extract(source)
         try:
             if sys.platform == "win32":
@@ -92,10 +92,7 @@ class AudioPreview:
             raise RuntimeError(tr("无法播放 {0}：{1}", source.name, exc)) from exc
         self.path = source
         self.started = time.monotonic()
-        if source.is_segment:
-            self.duration = source_duration(source) or _estimated_duration(path)
-        else:
-            self.duration = wav_duration(path) or _estimated_duration(path)
+        self.duration = source_duration(source) or _estimated_duration(path)
         self.on_change(True, source)
         self._poll_id = self.root.after(250, self._poll)
 
@@ -131,7 +128,7 @@ class AudioPreview:
         destination = directory / f"{uuid.uuid4().hex}.wav"
         try:
             directory.mkdir(parents=True, exist_ok=True)
-            extract_wav_segment(source, destination)
+            decode_to_wav(source, destination)
         except Exception as exc:
             try:
                 destination.unlink()

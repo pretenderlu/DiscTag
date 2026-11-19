@@ -50,6 +50,10 @@ class FFmpegIntegrationTests(unittest.TestCase):
         write_pcm_wav(self.root / "s16.wav", 1, 16, sine(88200, 2))
         write_pcm_wav(self.root / "s24.wav", 1, 24, sine(88200, 3))
         write_pcm_wav(self.root / "f32.wav", 3, 32, sine(88200, 4, float_fmt=True), extensible=True)
+        import subprocess
+
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(self.root / "s16.wav"),
+                        "-map_metadata", "-1", "-c:a", "flac", str(self.root / "s16.flac")], check=True)
 
     def convert(self, name: str, output_format: str, quality: str = "320 kbps") -> Path:
         destination = self.root / f"{name}.{output_format}"
@@ -81,6 +85,35 @@ class FFmpegIntegrationTests(unittest.TestCase):
         self.assertFalse(result.failures)
         self.assertFalse(FLAC(result.converted_files[0]).pictures)
         self.assertEqual((result.output_directory / "cover.jpg").read_bytes(), cover.getvalue())
+
+    def test_per_track_flac_decodes_to_wav_byte_exact(self):
+        import wave
+
+        from disctag.audio import decode_to_wav
+        from disctag.sources import SourceTrack
+
+        destination = self.root / "decoded.wav"
+        decode_to_wav(SourceTrack(self.root / "s16.flac"), destination, FFMPEG)
+        with wave.open(str(destination), "rb") as decoded, wave.open(str(self.root / "s16.wav"), "rb") as original:
+            self.assertEqual(decoded.getparams()[:4], original.getparams()[:4])
+            self.assertEqual(decoded.readframes(88200), original.readframes(88200))
+
+    def test_per_track_flac_to_flac_and_mp3_are_tagged(self):
+        from disctag.audio import convert_album
+        from disctag.models import AlbumMetadata, TrackMetadata
+        from disctag.sources import SourceTrack
+
+        album = AlbumMetadata("Album", "Artist", "Artist", tracks=[TrackMetadata("Song", "Artist", 1)])
+        source = SourceTrack(self.root / "s16.flac")
+        for output_format in ("flac", "mp3"):
+            with self.subTest(output_format=output_format):
+                result = convert_album([source], album, self.root / f"out-{output_format}", output_format)
+                self.assertFalse(result.failures)
+                output = result.converted_files[0]
+                tag = FLAC(output)["title"][0] if output_format == "flac" else str(MP3(output)["TIT2"])
+                self.assertEqual(tag, "Song")
+        # 原始 flac 源未被改动。
+        self.assertTrue(FLAC(self.root / "s16.flac").info.length > 0)
 
     def test_mp3(self):
         for name in ("s16", "s24", "f32"):

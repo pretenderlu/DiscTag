@@ -145,7 +145,12 @@ def audio_info(path: Path) -> tuple[int, int, float]:
 def source_duration(source: SourceTrack | Path) -> float | None:
     source = SourceTrack.of(source)
     if not source.is_segment:
-        return wav_duration(source.path)
+        if source.path.suffix.lower() == ".wav":
+            return wav_duration(source.path)
+        try:
+            return audio_info(source.path)[2]
+        except AudioError:
+            return None
     if source.end_frame is not None:
         return (source.end_frame - source.start_frame) / FRAMES_PER_SECOND
     try:
@@ -161,22 +166,27 @@ def _segment_samples(source: SourceTrack, sample_rate: int) -> tuple[int, int | 
     return start, end
 
 
-def extract_wav_segment(
+def decode_to_wav(
     source: SourceTrack,
     destination: Path,
     ffmpeg: str | None = None,
     cancel: threading.Event | None = None,
 ) -> None:
-    """Writes one track of a disc image as a WAV file, sample-exactly."""
+    """Writes one source track as a WAV file, sample-exactly."""
     if source.path.suffix.lower() != ".wav":
         sample_rate, bits, _length = audio_info(source.path)
-        start, end = _segment_samples(source, sample_rate)
         codec = "pcm_s16le" if bits <= 16 else "pcm_s24le" if bits <= 24 else "pcm_s32le"
-        _run_ffmpeg([
+        command = [
             ffmpeg or find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-i", str(source.path), "-map", "0:a:0", "-vn", "-af", _trim_filter(start, end),
-            "-map_metadata", "-1", "-c:a", codec, str(destination),
-        ], cancel)
+            "-i", str(source.path), "-map", "0:a:0", "-vn",
+        ]
+        if source.is_segment:
+            command += ["-af", _trim_filter(*_segment_samples(source, sample_rate))]
+        command += ["-map_metadata", "-1", "-c:a", codec, str(destination)]
+        _run_ffmpeg(command, cancel)
+        return
+    if not source.is_segment:
+        shutil.copyfile(source.path, destination)
         return
     try:
         layout = _wav_layout(source.path)
@@ -258,14 +268,14 @@ def convert_album(
 ) -> ConversionResult:
     sources = [SourceTrack.of(source) for source in sources]
     if len(sources) != len(album.tracks):
-        raise AudioError(tr("本地 WAV 与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。"))
+        raise AudioError(tr("本地音轨与专辑曲目数量不一致，请插入缺失曲目、重新匹配或改用手动模式。"))
     if any(track.origin == "auto-manual" for track in album.tracks):
         raise AudioError(tr("仍有待确认的缺曲，请按实体 CD 曲目表填写真实歌名并保存。"))
     if output_format not in {"wav", "flac", "mp3"}:
         raise AudioError(tr("不支持的输出格式。"))
     renumber_tracks(album.tracks)
     needs_ffmpeg = output_format != "wav" or any(
-        source.is_segment and source.path.suffix.lower() != ".wav" for source in sources
+        source.path.suffix.lower() != ".wav" for source in sources
     )
     ffmpeg = find_ffmpeg() if needs_ffmpeg else None
     directory = output_directory(output_root, album)
@@ -345,10 +355,7 @@ def _convert_file(
 ) -> None:
     source = SourceTrack.of(source)
     if output_format == "wav":
-        if source.is_segment:
-            extract_wav_segment(source, destination, ffmpeg, cancel)
-        else:
-            shutil.copyfile(source.path, destination)
+        decode_to_wav(source, destination, ffmpeg, cancel)
         return
     command = [
         ffmpeg,

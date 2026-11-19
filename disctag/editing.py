@@ -135,7 +135,7 @@ def album_info_text(album: AlbumMetadata, region: str) -> str:
 
 def match_status(source_count: int, album: AlbumMetadata | None, duration_warnings: int) -> str:
     if not source_count:
-        return tr("先导入 WAV 文件")
+        return tr("先导入音轨文件")
     if not album:
         return tr("已导入 {0} 首 · 尚未匹配专辑", source_count)
     if source_count > len(album.tracks):

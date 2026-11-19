@@ -238,6 +238,39 @@ class AudioTests(unittest.TestCase):
         self.assertEqual([str(audio["TRCK"]) for audio in tagged], ["1/2", "2/2", "1/2", "2/2"])
         self.assertEqual([str(audio["TPOS"]) for audio in tagged], ["1/2", "1/2", "2/2", "2/2"])
 
+    def test_flac_source_duration_uses_audio_info(self):
+        from disctag import audio
+
+        source = SourceTrack(self.root / "track.flac")
+        with patch("disctag.audio.audio_info", return_value=(44100, 16, 2.5)):
+            self.assertEqual(audio.source_duration(source), 2.5)
+        with patch("disctag.audio.audio_info", side_effect=AudioError("bad")):
+            self.assertIsNone(audio.source_duration(source))
+
+    def test_per_track_flac_decode_to_wav_has_no_atrim(self):
+        from disctag import audio
+
+        source = SourceTrack(self.root / "track.flac")
+        with patch("disctag.audio.audio_info", return_value=(44100, 24, 2.0)),                 patch("disctag.audio._run_ffmpeg") as run:
+            audio.decode_to_wav(source, self.root / "out.wav", "ffmpeg")
+        command = run.call_args.args[0]
+        self.assertNotIn("-af", command)
+        self.assertEqual(command[command.index("-c:a") + 1], "pcm_s24le")
+        self.assertEqual(command[command.index("-map_metadata") + 1], "-1")
+
+    def test_per_track_flac_to_wav_requires_ffmpeg(self):
+        with patch("disctag.audio.find_ffmpeg", side_effect=AudioError("no ffmpeg")):
+            with self.assertRaisesRegex(AudioError, "no ffmpeg"):
+                convert_album([SourceTrack(self.root / "track.flac")], self.album, self.root / "out", "wav")
+
+    def test_flac_self_overwrite_is_refused(self):
+        target = output_path(output_directory(self.root, self.album), self.album.tracks[0], "flac")
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"fLaC")
+        with patch("disctag.audio.find_ffmpeg", return_value="ffmpeg"),                 self.assertRaisesRegex(AudioError, "源文件"):
+            convert_album([SourceTrack(target)], self.album, self.root, "flac")
+        self.assertEqual(target.read_bytes(), b"fLaC")
+
     def test_flac_and_mp3_conversion(self):
         try:
             find_ffmpeg()
@@ -385,7 +418,7 @@ class CueImageTests(unittest.TestCase):
         last = SourceTrack(self.root / "image.ape", 150, None, 3, self.root / "image.cue")
         with patch("disctag.audio.audio_info", return_value=(44100, 24, 10.0)), \
                 patch("disctag.audio._run_ffmpeg") as run:
-            audio.extract_wav_segment(source, self.root / "a.wav", "ffmpeg")
+            audio.decode_to_wav(source, self.root / "a.wav", "ffmpeg")
             audio._convert_file("ffmpeg", last, self.root / "b.flac", "flac", "V0")
         wav_command, flac_command = (call.args[0] for call in run.call_args_list)
         self.assertEqual(wav_command[wav_command.index("-af") + 1], "atrim=start_sample=44100:end_sample=88200,asetpts=PTS-STARTPTS")

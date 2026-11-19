@@ -17,7 +17,7 @@ class PlaybackTests(unittest.TestCase):
         process.poll.return_value = None
         with patch("disctag.playback.sys.platform", "darwin"), \
                 patch("disctag.playback.subprocess.Popen", return_value=process), \
-                patch("disctag.playback.wav_duration", return_value=10.0):
+                patch("disctag.playback.source_duration", return_value=10.0):
             preview = AudioPreview(root, on_change)
             path_a, path_b = Path("a.wav"), Path("b.wav")
             preview.play(path_a)
@@ -40,7 +40,7 @@ class PlaybackTests(unittest.TestCase):
             with (
                 patch("disctag.playback.sys.platform", "darwin"),
                 patch("disctag.playback.subprocess.Popen", return_value=Mock()),
-                patch("disctag.playback.wav_duration", return_value=None),
+                patch("disctag.playback.source_duration", return_value=None),
             ):
                 preview = AudioPreview(root, Mock())
                 preview.play(path)
@@ -105,6 +105,34 @@ class PlaybackTests(unittest.TestCase):
                 (preview_root / "left.wav").write_bytes(b"x")
                 playback.cleanup_preview_files()
                 self.assertEqual(list(preview_root.iterdir()), [])
+
+    def test_flac_preview_extracts_and_cleans_up(self):
+        import wave
+
+        with tempfile.TemporaryDirectory() as directory:
+            preview_root = Path(directory) / "preview"
+            source = SourceTrack(Path(directory) / "track.flac")
+
+            def fake_decode(_source, destination):
+                with wave.open(str(destination), "wb") as audio:
+                    audio.setparams((2, 2, 44100, 0, "NONE", "not compressed"))
+                    audio.writeframes(bytes(4 * 44100))
+
+            sound = Mock(SND_FILENAME=1, SND_ASYNC=2, SND_NODEFAULT=4, SND_PURGE=8)
+            with (
+                patch("disctag.playback.sys.platform", "win32"),
+                patch("disctag.playback.preview_directory", return_value=preview_root),
+                patch("disctag.playback.decode_to_wav", side_effect=fake_decode) as decode,
+                patch.dict("sys.modules", {"winsound": sound}),
+            ):
+                preview = AudioPreview(Mock(), Mock())
+                preview.play(source)
+                decode.assert_called_once()
+                played = Path(sound.PlaySound.call_args.args[0])
+                self.assertEqual(played.parent, preview_root)
+                self.assertTrue(played.is_file())
+                preview.stop()
+                self.assertFalse(played.exists())
 
     def test_segment_preview_failure_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:

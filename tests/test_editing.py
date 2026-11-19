@@ -173,7 +173,7 @@ class InfoTests(unittest.TestCase):
 
     def test_match_status_branches(self):
         record = album(track(), track())
-        self.assertEqual(match_status(0, None, 0), "先导入 WAV 文件")
+        self.assertEqual(match_status(0, None, 0), "先导入音轨文件")
         self.assertEqual(match_status(2, None, 0), "已导入 2 首 · 尚未匹配专辑")
         self.assertEqual(match_status(4, record, 0), "本地多 2 首 · 请对照实体 CD，使用时长匹配或插入缺曲")
         self.assertEqual(match_status(1, record, 0), "本地少 1 首 · 请核对实体 CD 版本或重新匹配")

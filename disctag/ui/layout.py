@@ -41,7 +41,7 @@ class LayoutMixin:
         titles.pack(side="left", fill="y")
         tk.Label(titles, text="DiscTag", bg="#1D1C31", fg="#FFFFFF", font=(self.ui_semibold, 24)).pack(anchor="w")
         tk.Label(titles, text=tr("让每一张 CD，都有完整而漂亮的音乐资料"), bg="#1D1C31", fg="#BAB8D0", font=(self.cjk_font, 10)).pack(anchor="w")
-        tk.Label(header_content, text="WAV  →  WAV / FLAC / MP3", bg="#1D1C31", fg="#BDB5FF", font=(self.ui_semibold, 12)).pack(side="right", pady=self._px(14))
+        tk.Label(header_content, text="WAV / FLAC / APE / CUE  →  WAV / FLAC / MP3", bg="#1D1C31", fg="#BDB5FF", font=(self.ui_semibold, 12)).pack(side="right", pady=self._px(14))
 
         body = ttk.Frame(self.root, padding=(self._px(22), self._px(18), self._px(22), self._px(12)))
         body.pack(fill="both", expand=True)
@@ -49,7 +49,7 @@ class LayoutMixin:
         source_card = source_panel.content
         source_panel.pack(fill="x", pady=(0, self._px(12)))
         ttk.Label(source_card, text=tr("1  导入 CD 音轨"), style="Title.Card.TLabel").pack(side="left", padx=(0, self._px(18)))
-        ttk.Button(source_card, text=tr("选择 WAV 文件夹"), command=self._import_wav).pack(side="left")
+        ttk.Button(source_card, text=tr("选择音轨文件夹"), command=self._import_wav).pack(side="left")
         ttk.Label(source_card, textvariable=self.source_var, style="Muted.Card.TLabel").pack(side="left", padx=self._px(16), fill="x", expand=True)
 
         content = ttk.Frame(body)
@@ -210,7 +210,7 @@ class LayoutMixin:
         tracks_panel.pack(fill="both", expand=True)
         track_columns = ("preview", "number", "source", "title", "artist", "duration")
         self.tracks_tree = ttk.Treeview(tracks_frame, columns=track_columns, show="headings", selectmode="browse", height=5)
-        headings = {"preview": tr("试听"), "number": tr("曲序"), "source": tr("本地 WAV"), "title": tr("写入的歌曲名"), "artist": tr("歌手"), "duration": tr("时长")}
+        headings = {"preview": tr("试听"), "number": tr("曲序"), "source": tr("本地音轨"), "title": tr("写入的歌曲名"), "artist": tr("歌手"), "duration": tr("时长")}
         for key, value in headings.items():
             self.tracks_tree.heading(key, text=value)
         self.tracks_tree.column("preview", width=self._px(48), anchor="center", stretch=False)
@@ -260,7 +260,7 @@ class LayoutMixin:
         ttk.Button(output_row, text=tr("打开目录"), command=self._open_output).pack(side="left", padx=(6, 0))
         action_row = ttk.Frame(output_card, style="Card.TFrame")
         action_row.pack(fill="x", pady=(10, 0))
-        ttk.Radiobutton(action_row, text=tr("WAV 不转码"), value="wav", variable=self.format_var, command=self._format_changed).pack(side="left")
+        ttk.Radiobutton(action_row, text=tr("WAV"), value="wav", variable=self.format_var, command=self._format_changed).pack(side="left")
         ttk.Radiobutton(action_row, text=tr("FLAC 无损"), value="flac", variable=self.format_var, command=self._format_changed).pack(side="left", padx=(12, 0))
         ttk.Radiobutton(action_row, text="MP3", value="mp3", variable=self.format_var, command=self._format_changed).pack(side="left", padx=(12, 8))
         self.quality_combo = ttk.Combobox(action_row, textvariable=self.quality_var, values=("320 kbps", "V0"), state="readonly", width=10)

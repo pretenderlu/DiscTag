@@ -44,7 +44,7 @@ class CatalogMixin:
         self._clear_cover()
         self.album_info_var.set(tr("搜索并选择专辑，或进入手动模式"))
         self._refresh_tracks()
-        self.status_var.set(tr("已清空专辑资料，可输入新专辑；已导入的 WAV 保持不变"))
+        self.status_var.set(tr("已清空专辑资料，可输入新专辑；已导入的音轨保持不变"))
         self.album_entry.focus_set()
 
     def _search(self) -> None:
@@ -54,7 +54,7 @@ class CatalogMixin:
         if not self.album_var.get().strip() and not (source == SOURCE_MUSICBRAINZ and self.sources):
             hint = tr("请先输入专辑名称。")
             if source == SOURCE_MUSICBRAINZ:
-                hint = tr("请输入专辑名称，或先导入 WAV 以按音轨时长识别光盘。")
+                hint = tr("请输入专辑名称，或先导入音轨以按音轨时长识别光盘。")
             messagebox.showwarning(tr("缺少专辑名称"), hint, parent=self.root)
             return
         region = self.region_var.get()
@@ -96,7 +96,7 @@ class CatalogMixin:
             if not local_ms:
                 return results, {}, {}
             self._post(lambda: request_id == self.search_request_id
-                       and self.status_var.set(tr("正在按本地 WAV 时长核对候选版本…")))
+                       and self.status_var.set(tr("正在按本地音轨时长核对候选版本…")))
             candidates = candidates_to_verify(results, len(local_ms))
             fits, albums = verify_candidates(
                 candidates, local_ms, lambda entry: self.client.get_album(entry.collection_id, entry.country)
@@ -127,7 +127,7 @@ class CatalogMixin:
         self._run_async(work, done, lambda error: self._search_failed(error, request_id))
 
     def _search_musicbrainz(self, album: str, artist: str, local_ms: list[float | None], cue_toc: str | None = None):
-        """TOC lookup (the exact CUE TOC, else one built from the local WAV durations) first, then a text search
+        """TOC lookup (the exact CUE TOC, else one built from the local track durations) first, then a text search
         when an album name is given."""
         results: list[AlbumSummary] = []
         fits: dict[tuple, DurationFit] = {}

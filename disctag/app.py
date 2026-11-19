@@ -74,7 +74,7 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.preview = AudioPreview(self.root, self._playback_changed)
         self.sources: list[SourceTrack] = []
         self.source_durations: dict[SourceTrack, float | None] = {}
-        # CUE 整轨导入时由 CUE 精确计算的 MusicBrainz TOC；单曲 WAV 导入时为 None。
+        # CUE 整轨导入时由 CUE 精确计算的 MusicBrainz TOC；单曲导入时为 None。
         self.cue_toc: str | None = None
         self.results: list[AlbumSummary] = []
         self.result_markers: dict[tuple, str] = {}
@@ -111,7 +111,7 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.album_artist_var = tk.StringVar()
         self.date_var = tk.StringVar()
         self.genre_var = tk.StringVar()
-        self.source_var = tk.StringVar(value=tr("尚未选择 WAV 文件夹"))
+        self.source_var = tk.StringVar(value=tr("尚未选择音轨文件夹"))
         self.output_var = tk.StringVar(value=self.settings.get("output", str(Path.home() / "Music" / "DiscTag")))
         self.format_var = tk.StringVar(value=self.settings.get("format", "flac"))
         self.trash_sources_var = tk.BooleanVar(value=self.settings.get("trash_sources") is True)
@@ -136,7 +136,7 @@ class DiscTagApp(KeyboardMixin, ThemeMixin, LayoutMixin, EasterEggMixin, TracksM
         self.search_request_id = 0
         self.cover_is_local = False
         self.album_info_var = tk.StringVar(value=tr("搜索并选择专辑，或进入手动模式"))
-        self.match_var = tk.StringVar(value=tr("先导入 WAV 文件"))
+        self.match_var = tk.StringVar(value=tr("先导入音轨文件"))
         self.status_var = tk.StringVar(value=tr("就绪"))
         self.progress_var = tk.DoubleVar(value=0)
         self._configure_styles()
